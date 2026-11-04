@@ -1,0 +1,88 @@
+{
+  "name": "electron-git-manager",
+  "productName": "Git Baba",
+  "version": "0.1.0",
+  "description": "A security-first desktop Git client: review, authenticate and confirm every commit, push and pull.",
+  "main": "dist/main/main/index.js",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n vite,main,electron -c blue,magenta,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --config vite.config.mts",
+    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on tcp:127.0.0.1:5173 file:dist/main/main/index.js && electron . --dev",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build --config vite.config.mts",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "icon": "electron scripts/make-icon.cjs"
+  },
+  "author": "Git Baba",
+  "build": {
+    "appId": "dev.gitbaba.app",
+    "productName": "Git Baba",
+    "copyright": "Copyright © 2026 Git Baba",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Git Baba",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "GitBaba-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "GitBaba-Portable-${version}.${ext}"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": "AppImage",
+      "category": "Development"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.5",
+    "electron": "^44.6.0",
+    "electron-builder": "^26.15.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3",
+    "wait-on": "^9.5.1"
+  },
+  "dependencies": {
+    "tweetnacl": "1.0.3"
+  }
+}
