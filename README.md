@@ -1,16 +1,129 @@
-# Git Baba — Security-First Git Desktop Client
+<div align="center">
 
-Git Baba is an Electron + TypeScript + React desktop app for managing local Git repositories with one central rule:
+<img src="src/renderer/assets/logo.png" alt="Git Baba logo" width="96" />
 
-> **No commit or push happens silently.** Every operation follows **Review → Authenticate → Confirm → Commit/Push.**
+# Git Baba
 
-It supports multiple repositories, a guided "new repository" workflow, a line-level diff viewer, staging, branches, stash, fetch, a **pull security review** (fetch → scan → confirm → integrate the exact reviewed commit), conflict resolution, GitHub pull requests, and **GitHub App installation tokens** that are generated per operation, scoped to one repository and revoked right after use.
+**The security-first Git desktop client.**
+Nothing is committed, pushed or merged silently: every change goes **Review → Authenticate → Confirm**.
+
+![Electron](https://img.shields.io/badge/Electron-desktop-47848F?logo=electron&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
+![Platforms](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-supported-555)
+![License](https://img.shields.io/badge/license-MIT-green)
+![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
+
+[Screenshots](#-a-quick-tour) · [Why Git Baba](#-why-git-baba) · [Roadmap](#-roadmap) · [Get started](#installation) · [Contribute](#-contributing)
+
+<img src="docs/screenshots/changes.png" alt="Git Baba — Changes tab with commit graph, staged files and diff" width="900" />
+
+</div>
+
+---
+
+## 📸 A quick tour
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/history-graph.png" alt="Commit graph with commit details" /><br/>
+      <b>Commit graph</b>: branch lanes, tags and ref chips you can act on, plus a compact commit card with only the changed files.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/diff.png" alt="Diff opened in the centre pane" /><br/>
+      <b>Diffs where you look</b>: click a changed file and its diff opens in the centre, with ↑/↓ to step through files.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <img src="docs/screenshots/push.png" alt="Push Changes dialog" /><br/>
+      <b>Push review</b>: the route, every outgoing commit (undo any of them before it leaves) and who you push as.
+    </td>
+    <td valign="top">
+      <img src="docs/screenshots/switch-branch.png" alt="Safe branch switching" /><br/>
+      <b>Safe switching</b>: how each uncommitted file would fare on the target, checked <i>before</i> anything changes.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <img src="docs/screenshots/merge.png" alt="Simple merge" /><br/>
+      <b>Simple merge</b>: one source, one target. Merge now, merge on a new branch for a PR, or open a PR directly.
+    </td>
+    <td valign="top">
+      <img src="docs/screenshots/merge-check.png" alt="Merge pre-check" /><br/>
+      <b>Checked first</b>: blockers and remote state explained, merge / squash / rebase, and "Merge as" per operation.
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary><b>More screens</b>: conflict resolution</summary>
+<br/>
+
+<img src="docs/screenshots/conflicts.png" alt="Conflict resolution" /><br/>
+**Conflicts, explained**: current vs incoming side by side with branch names, per block or per file, bulk actions and undo.
+
+</details>
+
+---
+
+## ✨ Why Git Baba?
+
+GitKraken and GitHub Desktop are great tools. Git Baba is built for one thing they don't make central: **you always know, and approve, what is about to happen to your code and your credentials.**
+
+| | **Git Baba** | GitKraken | GitHub Desktop |
+| --- | :---: | :---: | :---: |
+| Review screen before every commit, push, merge | ✅ always | ⚪ partial | ⚪ partial |
+| Choose the identity *per operation* (account, GitHub App, SSH key, system) | ✅ | ⚪ per profile | ❌ |
+| Short-lived **GitHub App installation tokens**, scoped to one repo and revoked after use | ✅ | ❌ | ❌ |
+| **Pull security scan** before integrating incoming commits | ✅ | ❌ | ❌ |
+| Rejected push (rulesets, secret scanning) explained, with a one-click fix | ✅ | ❌ | ❌ |
+| Predicts every file's fate **before** a branch switch or merge | ✅ | ⚪ conflict hint | ❌ |
+| Conflict resolution with per-file **undo** | ✅ | ✅ | ❌ |
+| Commit graph | ✅ | ✅ | ❌ |
+| Pull requests, reviews and Actions inside the app | ✅ | ⚪ PRs | ❌ opens browser |
+| Undo a commit before pushing, with redo | ✅ | ✅ | ✅ |
+| GitLab / Bitbucket / Azure DevOps | 🛣️ [roadmap](#-roadmap) | ✅ | ❌ |
+| Free & open source (MIT) | ✅ | ❌ paid tiers | ✅ |
+
+<sub>✅ built in · ⚪ partly / differently · ❌ not available · Comparison is our reading of each product at the time of writing. Spot something outdated? Please open an issue.</sub>
+
+**In short:**
+- 🔐 **Credentials are never ambient.** Tokens are requested per operation, passed through an askpass helper, never written to a command line, and saved only if you opt in (OS keychain).
+- 🧭 **Git explained, not hidden.** Every dialog says what will change, where, and how to undo it. The built-in Git Help Center covers every command the app runs.
+- 🛟 **Undo everywhere.** Undo commits, conflict resolutions, file reverts and branch switches. Backups are kept as Git refs.
+
+---
+
+## 🛣️ Roadmap
+
+| Status | What's coming |
+| --- | --- |
+| 🟡 Planned | **Multiple providers**: connect **GitLab**, **Bitbucket** and **Azure DevOps** accounts next to GitHub, with the same per-operation sign-in |
+| 🟡 Planned | **Multi-account workspace**: many accounts per provider, auto-matched to each repository's remote |
+| 🟡 Planned | Merge requests (GitLab) and pull requests (Bitbucket, Azure Repos) in the same review UI |
+| 🟡 Planned | CI views for GitLab CI, Bitbucket Pipelines and Azure Pipelines alongside GitHub Actions |
+| 🔵 Exploring | Interactive rebase with drag-and-drop, commit signing setup wizard (GPG / SSH / X.509) |
+| 🔵 Exploring | Auto-update and signed builds for macOS and Linux |
+
+Want one of these sooner, or have an idea? [Open an issue](https://github.com/jahedul-hasan-kaz/git-baba/issues) or 👍 an existing one. That's how we prioritise.
+
+---
+
+## 🤝 Contributing
+
+1. Fork and clone, then `npm install` and `npm run dev` (see [Development](#development)).
+2. Run `npm run typecheck` and `npm test` before opening a PR.
+3. Read the [Security model](#security-model) first. Changes that touch credentials or Git execution get an extra review.
+
+Good first areas: provider adapters for the [roadmap](#-roadmap), UI polish, translations of the Git Help Center, and tests.
 
 ---
 
 ## Contents
 
-- [Installation](#installations)
+- [Installation](#installation)
 - [Development](#development)
 - [Build & packaging](#build--packaging)
 - [Configuration](#configuration)
