@@ -14,7 +14,7 @@ Nothing is committed, pushed or merged silently: every change goes **Review → 
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
-[Screenshots](#-a-quick-tour) · [Why Git Baba](#-why-git-baba) · [Roadmap](#-roadmap) · [Get started](#installation) · [Contribute](#-contributing)
+[Screenshots](#-a-quick-tour) · [Why Git Baba](#-why-git-baba) · [Roadmap](#-roadmap) · [Download](#️-download--try-it) · [Get started](#installation) · [Contribute](#-contributing)
 
 <img src="docs/screenshots/changes.png" alt="Git Baba — Changes tab with commit graph, staged files and diff" width="900" />
 
@@ -135,6 +135,23 @@ Good first areas: provider adapters for the [roadmap](#-roadmap), UI polish, tra
 - [Troubleshooting](#troubleshooting)
 
 ---
+
+## ⬇️ Download & try it
+
+Want to evaluate Git Baba without building it? Grab a ready-made build from **[Releases](https://github.com/jahedul-hasan-kaz/git-baba/releases/latest)**:
+
+| Platform | File | Notes |
+| --- | --- | --- |
+| Windows 10+ | `GitBaba-Setup-<version>.exe` | Installer |
+| Windows 10+ | `GitBaba-Portable-<version>.exe` | No install, just run |
+| macOS 12+ (Apple Silicon) | `GitBaba-<version>-mac-arm64.dmg` | M1 / M2 / M3 / M4 |
+| macOS 12+ (Intel) | `GitBaba-<version>-mac-x64.dmg` | |
+
+You need **Git 2.30+** installed. Builds are not code-signed yet:
+- **Windows:** SmartScreen may warn. Choose **More info → Run anyway**.
+- **macOS:** right-click the app → **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Git Baba.app"`.
+
+Maintainers: pushing a tag like `v0.1.0` runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds both platforms and publishes the release.
 
 ## Installation
 

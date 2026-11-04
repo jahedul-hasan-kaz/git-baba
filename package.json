@@ -61,6 +61,9 @@
       "target": "dmg",
       "category": "public.app-category.developer-tools"
     },
+    "dmg": {
+      "artifactName": "GitBaba-${version}-mac-${arch}.${ext}"
+    },
     "linux": {
       "icon": "build/icon.png",
       "target": "AppImage",
