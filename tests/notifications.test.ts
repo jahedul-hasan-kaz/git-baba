@@ -81,3 +81,63 @@ describe('desktopText', () => {
     expect(desktopText([n({ kind: 'pr', action: 'opened pull request', subject: 'Bell', number: 5 })]).title).toBe('octo opened pull request #5');
   });
 });
+
+import { diffSnapshot, parseSnapshot } from '../src/main/notifications/snapshot';
+
+describe('snapshot diff', () => {
+  const since = '2026-11-05T10:00:00Z';
+  const later = '2026-11-05T10:05:00Z';
+  const repo = (o: Record<string, unknown>) => ({ repository: { branches: { totalCount: 0, nodes: [] }, tags: { nodes: [] }, releases: { nodes: [] }, pullRequests: { nodes: [] }, issues: { nodes: [] }, ...o } });
+  const br = (name: string, oid: string, count: number) => ({ name, target: { oid, committedDate: later, messageHeadline: `msg ${oid}`, history: { totalCount: count }, author: { user: { login: 'octo' } } } });
+
+  it('reports created, pushed and deleted branches', () => {
+    const a = parseSnapshot(repo({ branches: { totalCount: 2, nodes: [br('main', 'a', 5), br('old', 'o', 2)] } })).snap;
+    const b = parseSnapshot(repo({ branches: { totalCount: 2, nodes: [br('main', 'b', 7), br('new', 'n', 1)] } }));
+    const d = diffSnapshot(a, b, since, later).map((x) => `${x.kind}:${x.action}:${x.subject}`);
+    expect(d).toEqual(['push:pushed 2 commits to:main', 'branch-create:created branch:new', 'branch-delete:deleted branch:old']);
+  });
+
+  it('reports PR state changes, new comments and reviews once', () => {
+    const pr = (state: string, comments: unknown[] = [], reviews: unknown[] = []) => ({
+      number: 4,
+      title: 'Bell',
+      state,
+      createdAt: '2026-11-01T00:00:00Z',
+      mergedAt: later,
+      headRefName: 'f',
+      baseRefName: 'main',
+      author: { login: 'octo' },
+      mergedBy: { login: 'mona' },
+      comments: { nodes: comments },
+      reviews: { nodes: reviews },
+      reviewThreads: { nodes: [] },
+    });
+    const a = parseSnapshot(repo({ pullRequests: { nodes: [pr('OPEN', [{ id: 'c0', body: 'old', createdAt: '2026-11-04T00:00:00Z', author: { login: 'x' } }])] } })).snap;
+    const b = parseSnapshot(
+      repo({
+        pullRequests: {
+          nodes: [
+            pr(
+              'MERGED',
+              [
+                { id: 'c0', body: 'old', createdAt: '2026-11-04T00:00:00Z', author: { login: 'x' } },
+                { id: 'c1', body: 'Ship it', createdAt: later, author: { login: 'mona' } },
+              ],
+              [{ id: 'r1', state: 'APPROVED', body: '', submittedAt: later, author: { login: 'mona' } }],
+            ),
+          ],
+        },
+      }),
+      a.seen,
+    );
+    const d = diffSnapshot(a, b, since, later);
+    expect(d.map((x) => `${x.kind}:${x.action}:${x.actor}`)).toEqual(['pr:merged pull request:mona', 'review:approved:mona', 'comment:commented on pull request:mona']);
+    expect(diffSnapshot(b.snap, parseSnapshot(repo({ pullRequests: { nodes: [] } }), b.snap.seen), since, later)).toHaveLength(0);
+  });
+
+  it('ignores a missing branch when the list was cut off', () => {
+    const a = parseSnapshot(repo({ branches: { totalCount: 1, nodes: [br('main', 'a', 1)] } })).snap;
+    const b = parseSnapshot(repo({ branches: { totalCount: 200, nodes: [] } }));
+    expect(diffSnapshot(a, b, since, later)).toHaveLength(0);
+  });
+});

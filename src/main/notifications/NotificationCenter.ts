@@ -2,11 +2,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AppNotification, NotificationFeed, NotificationPrefs, RepoRecord } from '../../shared/types';
 import type { GitHubClient } from '../github/client/GitHubClient';
-import { eventToActivity, parseWorktrees, runsToActivity, worktreeChanges, type ActivityDraft, type RunState } from './activity';
+import { parseWorktrees, runsToActivity, worktreeChanges, type ActivityDraft, type RunState } from './activity';
+import { diffSnapshot, parseSnapshot, SNAPSHOT_QUERY, type RepoSnapshot } from './snapshot';
 
 interface WatchState {
-  /** Ids of events already turned into notifications (or seen at baseline). */
-  eventIds: string[];
+  /** Branches, tags, PRs, issues and seen comments at the last check: the next check reports the difference. */
+  snapshot?: RepoSnapshot;
+  /** Legacy (events feed): no longer used. */
+  eventIds?: string[];
   /** Events and runs before this moment are history, not news. */
   since: string;
   runs: Record<string, RunState>;
@@ -47,7 +50,7 @@ export interface NotificationDeps {
 const MAX_ITEMS_PER_ACCOUNT = 300;
 const MAX_REPOS = 25;
 const POLL_MS = 60_000;
-const DEFAULT_PREFS: NotificationPrefs = { desktop: true, includeOwn: false, snoozeUntil: null };
+const DEFAULT_PREFS: NotificationPrefs = { desktop: true, snoozeUntil: null };
 
 /**
  * Watches the active account's repositories for new activity — pushes, branches and tags, pull requests,
@@ -75,7 +78,11 @@ export class NotificationCenter {
   private load(): Persisted {
     try {
       const raw = JSON.parse(fs.readFileSync(this.deps.file, 'utf8')) as Partial<Persisted>;
-      return { version: 1, items: Array.isArray(raw.items) ? raw.items : [], watch: raw.watch ?? {}, prefs: { ...DEFAULT_PREFS, ...raw.prefs } };
+      // Only other people's activity is kept (older versions also stored your own).
+      const items = Array.isArray(raw.items) ? raw.items.filter((n) => !n.own) : [];
+      const prefs = { ...DEFAULT_PREFS, ...raw.prefs } as NotificationPrefs & { includeOwn?: unknown };
+      delete prefs.includeOwn;
+      return { version: 1, items, watch: raw.watch ?? {}, prefs };
     } catch {
       return { version: 1, items: [], watch: {}, prefs: { ...DEFAULT_PREFS } };
     }
@@ -207,8 +214,7 @@ export class NotificationCenter {
       const added = fresh.filter((n) => !ids.has(n.id));
       this.data.items.push(...added);
       this.trim(acct.id);
-      const toDesktop = added.filter((n) => !n.own || this.data.prefs.includeOwn);
-      if (this.data.prefs.desktop && toDesktop.length) this.deps.desktop(toDesktop);
+      if (this.data.prefs.desktop && added.length) this.deps.desktop(added);
     }
     this.save();
     this.changed();
@@ -225,22 +231,17 @@ export class NotificationCenter {
     const key = `${acct.id}:${w.repo.id}`;
     const nowIso = this.now().toISOString();
     const first = !this.data.watch[key];
-    const st: WatchState = this.data.watch[key] ?? { eventIds: [], since: nowIso, runs: {} };
+    const st: WatchState = this.data.watch[key] ?? { since: nowIso, runs: {} };
+    delete st.eventIds;
     const drafts: ActivityDraft[] = [];
     const base = `/repos/${encodeURIComponent(w.owner)}/${encodeURIComponent(w.name)}`;
 
-    const events = await client.get<unknown[]>(`${base}/events`, { query: { per_page: 30 }, action: 'read repository activity' });
-    const seen = new Set(st.eventIds);
-    for (const e of (events ?? []) as { id: string; created_at?: string }[]) {
-      const id = String(e.id);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      st.eventIds.unshift(id);
-      if (first || (e.created_at ?? '') <= st.since) continue;
-      const d = eventToActivity(e);
-      if (d) drafts.push(d);
-    }
-    st.eventIds = st.eventIds.slice(0, 200);
+    // Compare the repository's current state with the last check (silent the first time).
+    const data = await client.graphql<unknown>(SNAPSHOT_QUERY, { o: w.owner, n: w.name }, 'read repository activity');
+    const parsed = parseSnapshot(data, st.snapshot?.seen);
+    if (st.snapshot) drafts.push(...diffSnapshot(st.snapshot, parsed, st.since, nowIso));
+    else st.since = nowIso;
+    st.snapshot = parsed.snap;
 
     try {
       const runs = await client.get<{ workflow_runs?: unknown[] }>(`${base}/actions/runs`, { query: { per_page: 15 }, action: 'read workflow runs' });
@@ -258,9 +259,10 @@ export class NotificationCenter {
       st.worktrees = now;
     }
 
-    // `since` stays at the baseline: event ids (not times) decide what is new, because GitHub can deliver events late.
     this.data.watch[key] = st;
-    return drafts.map((d) => {
+    // Only other people's changes: your own pushes, comments, merges (and this computer's worktrees) are left out.
+    const others = drafts.filter((d) => d.kind !== 'worktree' && !(d.actor && d.actor.toLowerCase() === acct.login.toLowerCase()));
+    return others.map((d) => {
       const { key: k, ...rest } = d;
       return {
         ...rest,
@@ -270,8 +272,7 @@ export class NotificationCenter {
         repoId: w.repo.id,
         repo: `${w.owner}/${w.name}`,
         read: false,
-        own: !!d.actor && d.actor.toLowerCase() === acct.login.toLowerCase(),
-        actor: d.kind === 'worktree' ? undefined : d.actor,
+        own: false,
       };
     });
   }

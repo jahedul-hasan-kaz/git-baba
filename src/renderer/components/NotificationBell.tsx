@@ -174,14 +174,6 @@ export function NotificationBell() {
                 <input type="checkbox" role="switch" checked={feed.prefs.desktop} disabled={!feed.desktopSupported} onChange={(e) => setPrefs({ desktop: e.target.checked })} />
                 <span className="nb-switch" />
               </label>
-              <label className="nb-pref">
-                <span className="grow">
-                  <strong>Include my own activity</strong>
-                  <span className="small muted">E.g. pushes from another computer</span>
-                </span>
-                <input type="checkbox" role="switch" checked={feed.prefs.includeOwn} onChange={(e) => setPrefs({ includeOwn: e.target.checked })} />
-                <span className="nb-switch" />
-              </label>
               <div className="nb-pref">
                 <span className="grow">
                   <strong>Pause</strong>
@@ -259,7 +251,7 @@ function Item({ n, isNew, delay }: { n: AppNotification; isNew: boolean; delay: 
       <div className="nb-body">
         <div className="nb-line">
           <strong>{n.actor ?? (n.kind === 'worktree' ? 'This computer' : 'Someone')}</strong>
-          {n.own && <span className="nb-you">you</span>} <span className="nb-action">{n.action}</span> <strong className="nb-subject">{n.subject}</strong>
+          <span className="nb-action">{n.action}</span> <strong className="nb-subject">{n.subject}</strong>
           {n.number ? <span className="nb-num"> #{n.number}</span> : null}
         </div>
         {n.detail && <div className={`nb-detail ${quote ? 'quote' : ''} ${n.kind === 'push' ? 'commit' : ''}`}>{n.detail}</div>}
@@ -296,7 +288,7 @@ function EmptyState({ feed }: { feed: NotificationFeed | null }) {
           ? ['🌙', 'Notifications are paused', 'Resume them from the settings above.']
           : s === 'error'
             ? ['⚠', 'Could not reach GitHub', feed?.message ?? '']
-            : ['✨', 'All quiet', `New pushes, pull requests, comments, workflow runs and branch changes on ${feed?.watching.length ?? 0} ${feed?.watching.length === 1 ? 'repository' : 'repositories'} appear here.`];
+            : ['✨', 'All quiet', `Other people’s pushes, pull requests, comments, workflow runs and branch changes on ${feed?.watching.length ?? 0} ${feed?.watching.length === 1 ? 'repository' : 'repositories'} appear here.`];
   return (
     <div className="nb-empty">
       <div className="nb-empty-ico">{icon}</div>

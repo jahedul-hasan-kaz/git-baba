@@ -22,7 +22,6 @@ export function createNotifyHandlers(ctx: AppContext): Handlers {
       const p = (payload ?? {}) as Record<string, unknown>;
       const patch: Partial<NotificationPrefs> = {};
       if (p.desktop !== undefined) patch.desktop = p.desktop === true;
-      if (p.includeOwn !== undefined) patch.includeOwn = p.includeOwn === true;
       if (p.snoozeUntil !== undefined) {
         if (p.snoozeUntil === null) patch.snoozeUntil = null;
         else if (typeof p.snoozeUntil === 'string' && !Number.isNaN(Date.parse(p.snoozeUntil))) patch.snoozeUntil = new Date(p.snoozeUntil).toISOString();

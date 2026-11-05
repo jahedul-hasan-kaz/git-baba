@@ -1339,15 +1339,13 @@ export interface AppNotification {
   /** ISO time of the change on the remote. */
   at: string;
   read: boolean;
-  /** Done by the active account itself (shown, but never sent to the desktop). */
+  /** Done by the active account itself. Always false: only other people's activity is notified. */
   own: boolean;
 }
 
 export interface NotificationPrefs {
   /** Show desktop (OS) notifications for new activity. */
   desktop: boolean;
-  /** Also notify about your own activity (pushes from another computer…). */
-  includeOwn: boolean;
   /** Pause all polling until this time (ISO), or null. */
   snoozeUntil: string | null;
 }
