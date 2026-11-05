@@ -1,5 +1,5 @@
 import type { ErrorAction, FriendlyError } from '../../shared/types';
-import { Modal } from './Modal';
+import { Modal, useEnclosingModalClose } from './Modal';
 import { useState } from 'react';
 import { call } from '../services/api';
 import { useApp } from '../state/AppState';
@@ -17,6 +17,8 @@ const ACTION_LABELS: Record<ErrorAction, string> = {
 /** "Switch to <login>" for errors on a repository that belongs to another added account. */
 function SwitchAccountButton({ target, onSwitched }: { target: { accountId: string; login: string }; onSwitched?: () => void }) {
   const { setAccounts, refreshSession, toast } = useApp();
+  // Without a handler, a dialog showing this error closes once the switch is done.
+  const closeModal = useEnclosingModalClose();
   const [busy, setBusy] = useState(false);
   return (
     <button
@@ -28,7 +30,7 @@ function SwitchAccountButton({ target, onSwitched }: { target: { accountId: stri
           setAccounts(await call('accounts:setActive', { accountId: target.accountId }));
           await refreshSession().catch(() => undefined);
           toast(`Switched to ${target.login}`);
-          onSwitched?.();
+          (onSwitched ?? closeModal)?.();
         } finally {
           setBusy(false);
         }

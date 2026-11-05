@@ -1,4 +1,11 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
+
+const ModalCloseContext = createContext<(() => void) | null>(null);
+
+/** Closes the dialog this component is rendered in (null outside a dialog). */
+export function useEnclosingModalClose(): (() => void) | null {
+  return useContext(ModalCloseContext);
+}
 
 interface Props {
   title: ReactNode;
@@ -35,7 +42,9 @@ export function Modal({ title, icon, onClose, footer, size = 'normal', children,
             ✕
           </button>
         </div>
-        <div className="modal-body">{children}</div>
+        <div className="modal-body">
+          <ModalCloseContext.Provider value={onClose}>{children}</ModalCloseContext.Provider>
+        </div>
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>
