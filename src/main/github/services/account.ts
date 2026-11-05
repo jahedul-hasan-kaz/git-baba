@@ -19,7 +19,7 @@ export async function getProfile(c: GitHubClient, year?: number): Promise<Accoun
   const to = y && y < now.getUTCFullYear() ? `${y}-12-31T23:59:59Z` : now.toISOString();
   const d = await c.graphql<{ viewer: Json }>(
     `query($from: DateTime!, $to: DateTime!) { viewer {
-      login name avatarUrl url bio company location websiteUrl twitterUsername email isHireable createdAt
+      login name avatarUrl url bio company location websiteUrl twitterUsername isHireable createdAt
       followers { totalCount } following { totalCount }
       repositories(ownerAffiliations: OWNER) { totalCount }
       starredRepositories { totalCount }
@@ -36,6 +36,9 @@ export async function getProfile(c: GitHubClient, year?: number): Promise<Accoun
     'load your profile',
   );
   const v = d.viewer;
+  // GraphQL's viewer.email needs the user:email scope, which browser sign-ins don't have.
+  // REST /user returns the public email with no extra scope.
+  v.email = await c.get<Json>('/user', { action: 'load your profile' }).then((u) => u.email ?? null).catch(() => null);
   const cc = v.contributionsCollection;
   const weeks: ContributionDay[][] = (cc.contributionCalendar.weeks as Json[]).map((w) =>
     (w.contributionDays as Json[]).map((x) => ({ date: x.date, count: x.contributionCount, level: LEVEL[x.contributionLevel] ?? 0 })),
