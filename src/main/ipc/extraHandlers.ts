@@ -117,11 +117,12 @@ export function createExtraHandlers(
     'accounts:add': async (payload) => {
       const p = asObject(payload);
       let token = asString(p.token, 'Token', { max: 512 });
-      const remember = asBoolean(p.remember, 'remember');
+      // Always remembered (OS keychain) and signed in, so the account stays signed in.
+      const remember = ctx.accountSecrets.available();
       const apiBaseUrl = p.apiBaseUrl ? validateApiBaseUrl(asLine(p.apiBaseUrl, 'API URL', { max: 300 })) : undefined;
       const gh = ctx.githubFor(apiBaseUrl ?? DEFAULT_API_BASE);
       const verified = await verifyToken(gh, token);
-      const signIn = asOptionalBoolean(p.signIn, 'signIn') ?? false;
+      const signIn = true;
       const account = ctx.accounts.upsert(verified.login, verified.name, verified.orgs, apiBaseUrl, 'token');
       if (remember) ctx.accountSecrets.save(account.id, token);
       // Optional: start the in-memory session now so GitHub features work without asking for the token again.

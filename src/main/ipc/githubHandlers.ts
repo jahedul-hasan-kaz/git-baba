@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import type { ApiMap } from '../../shared/api';
 import type { DraftReviewComment, GhRepoContext, MergeAuthOption, PreMergeReport } from '../../shared/github';
 import type { AppContext } from '../context';
+import { isRejectedCredential } from '../accounts/AccountSessions';
 import { AppError } from '../git/errors';
 import { looksBinary } from '../git/parsers';
 import { parseRemoteUrl } from '../git/remoteUrl';
@@ -75,8 +76,9 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
   }
 
   /** The active account's session client. Every GitHub feature uses the account selected in the header. */
-  function session(apiBase?: string) {
+  async function session(apiBase?: string) {
     const accountId = ctx.accounts.activeId();
+    await ctx.sessions.ensure(accountId);
     const s = ctx.sessions.client(accountId);
     const account = ctx.accounts.get(s.accountId)!;
     const accountBase = account.apiBaseUrl ?? DEFAULT_API_BASE;
@@ -163,7 +165,7 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
   async function userOperation(rawAuth: unknown, purpose: string) {
     const a = asObject(rawAuth, 'authentication');
     if (a.method === 'github-app') throw new AppError({ code: 'auth-not-applicable', title: 'Not Available for Apps', message: `GitHub Apps cannot ${purpose} on a personal account. Use your account's token or a personal access token.`, actions: ['review-auth'] });
-    const s = session();
+    const s = await session();
     return operationClient(PLACEHOLDER_REPO, { owner: s.login, name: '' }, s.account.apiBaseUrl ?? DEFAULT_API_BASE, s.login, rawAuth, {}, purpose);
   }
 
@@ -203,10 +205,10 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
    */
   const transports = new Map<string, { via: 'token' | 'gh'; login: string; at: number }>();
   async function transport(repo: import('../../shared/types').RepoRecord, r: RepoCoords, apiBase: string) {
-    let s: ReturnType<typeof session> | null = null;
+    let s: Awaited<ReturnType<typeof session>> | null = null;
     let sessionError: unknown = null;
     try {
-      s = session(apiBase);
+      s = await session(apiBase);
     } catch (err) {
       sessionError = err;
     }
@@ -267,12 +269,15 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
     };
   }
 
-  return {
+  const handlers: HandlerMap = {
     // ---------------- sessions ----------------
     'session:status': async (payload) => {
       const p = payload ? asObject(payload) : {};
       const id = p.accountId ? asId(p.accountId, 'accountId') : ctx.accounts.activeId();
-      return id ? ctx.sessions.status(id) : null;
+      if (!id) return null;
+      // Restore a saved sign-in; a rejected one (password changed) is dropped and reported as signed out.
+      await ctx.sessions.ensure(id).catch(() => undefined);
+      return ctx.sessions.status(id);
     },
     'session:signIn': async (payload) => {
       const credential = parseAccountCredential(asObject(payload).credential);
@@ -284,6 +289,7 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
     'session:signOut': async (payload) => {
       const id = asId(asObject(payload).accountId, 'accountId');
       ctx.sessions.end(id);
+      ctx.accountSecrets.forget(id); // signing out also forgets the saved sign-in
       for (const k of [...metadataCache.keys()]) if (k.startsWith(`${(ctx.accounts.get(id)?.login ?? '').toLowerCase()}:`)) metadataCache.delete(k);
       ctx.recordOperation(null, 'Sign out', 'SUCCESS', ctx.accounts.get(id)?.login ?? id);
       return ctx.sessions.status(id);
@@ -895,11 +901,11 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
     // ---------------- account centre ----------------
     'gh:acctProfile': async (payload) => {
       const p = asObject(payload ?? {});
-      return acct.getProfile(session().client, p.year === undefined || p.year === null ? undefined : asInt(p.year, 'year', 2008, 2100));
+      return acct.getProfile((await session()).client, p.year === undefined || p.year === null ? undefined : asInt(p.year, 'year', 2008, 2100));
     },
     'gh:acctRepos': async (payload) => {
       const p = asObject(payload ?? {});
-      return acct.listRepos(session().client, p.after ? asString(p.after, 'cursor', { max: 200 }) : null);
+      return acct.listRepos((await session()).client, p.after ? asString(p.after, 'cursor', { max: 200 }) : null);
     },
     'gh:acctUpdateProfile': async (payload) => {
       const patch = asObject(asObject(payload).patch, 'profile');
@@ -914,12 +920,12 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
       field('bio', 160);
       field('twitter_username', 15);
       if (patch.hireable !== undefined) out.hireable = asBoolean(patch.hireable, 'hireable');
-      await acct.updateProfile(session().client, out);
+      await acct.updateProfile((await session()).client, out);
       ctx.recordOperation(null, 'Update profile', 'SUCCESS', Object.keys(out).join(', '));
     },
-    'gh:acctEmails': async () => acct.listEmails(session().client),
+    'gh:acctEmails': async () => acct.listEmails((await session()).client),
     'gh:acctSshKeys': async () => {
-      const s = session();
+      const s = await session();
       return acct.listSshKeys(s.client, keyTokenInfo(s.account));
     },
     'gh:acctAddSshKey': async (payload) => {
@@ -950,13 +956,13 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
       }
     },
     'gh:acctGpgKeys': async () => {
-      const s = session();
+      const s = await session();
       const r = await acct.listGpgKeysWithAccess(s.client, keyTokenInfo(s.account));
       if (!r.access.ok) throw acct.keyAccessError(r.access.missing, r.access.tokenKind);
       return r.keys;
     },
     'gh:acctGpgKeyList': async () => {
-      const s = session();
+      const s = await session();
       return acct.listGpgKeysWithAccess(s.client, keyTokenInfo(s.account));
     },
     'gh:acctAddGpgKey': async (payload) => {
@@ -1275,4 +1281,20 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
       return res;
     },
   };
+
+  // When GitHub rejects the signed-in account's token (password changed, token revoked or expired),
+  // drop the session and the saved sign-in so the app asks the user to sign in again.
+  for (const key of Object.keys(handlers) as GitHubChannels[]) {
+    const inner = handlers[key] as (payload: unknown) => Promise<unknown>;
+    (handlers as Record<string, (payload: unknown) => Promise<unknown>>)[key] = async (payload) => {
+      try {
+        return await inner(payload);
+      } catch (err) {
+        const id = ctx.accounts.activeId();
+        if (id && isRejectedCredential(err) && (await ctx.sessions.stillValid(id)) === false) throw ctx.sessions.invalidate(id);
+        throw err;
+      }
+    };
+  }
+  return handlers;
 }

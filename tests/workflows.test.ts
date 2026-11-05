@@ -95,7 +95,7 @@ describe('accounts', () => {
     expect(store.activeId()).toBe(a.id);
   });
 
-  it('refuses a token that belongs to another account, and only remembers on explicit opt-in', async () => {
+  it('refuses a token that belongs to another account, and keeps the verified token so the account stays signed in', async () => {
     const { impl } = fakeGitHub({ 'GET /user': userRoute('someone-else'), 'GET /user/orgs': () => ({ status: 200, body: [] }) });
     ctx = makeCtx(impl);
     const acc = ctx.accounts.upsert('jahedul-hasan-kaz', null, []);
@@ -108,8 +108,6 @@ describe('accounts', () => {
     const deps2 = { accounts: ctx.accounts, accountSecrets: ctx.accountSecrets, githubFor: ctx.githubFor };
     const auth = await authenticateAccount(deps2, { accountId: acc.id, token: 'ghp_ok' });
     expect(auth.verified.orgs).toEqual(['inride']);
-    expect(ctx.accountSecrets.has(acc.id)).toBe(false); // not remembered without consent
-    await authenticateAccount(deps2, { accountId: acc.id, token: 'ghp_ok', remember: true });
     expect(ctx.accountSecrets.get(acc.id)).toBe('ghp_ok');
     expect(ctx.accounts.get(acc.id)?.orgs).toEqual(['inride']); // org list refreshed (non-secret)
   });

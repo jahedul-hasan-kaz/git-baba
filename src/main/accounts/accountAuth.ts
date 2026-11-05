@@ -75,7 +75,8 @@ export async function authenticateAccount(deps: AccountAuthDeps, input: AccountC
   }
   // Keep the (non-secret) organisation list fresh for repository detection.
   const refreshed = deps.accounts.upsert(verified.login, verified.name, verified.orgs.length ? verified.orgs : account.orgs, account.apiBaseUrl, input.useCli ? 'browser' : account.method === 'ssh' ? 'token' : (account.method ?? 'token'));
-  if (input.remember && !input.useRemembered) deps.accountSecrets.save(account.id, token);
+  // Stay signed in: the verified token is kept encrypted in the OS keychain (when one exists).
+  if (!input.useRemembered && deps.accountSecrets.available()) deps.accountSecrets.save(account.id, token);
   return {
     account: refreshed,
     token,

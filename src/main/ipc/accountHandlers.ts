@@ -7,7 +7,7 @@ import type { AppContext } from '../context';
 import { AppError } from '../git/errors';
 import { cancelBrowserLogin, cliAccounts, ghAuthToken, startBrowserLogin, waitBrowserLogin } from '../github/ghCli';
 import { DEFAULT_API_BASE, parsePrivateKey, privateKeyFingerprint, validateApiBaseUrl } from '../github/GitHubService';
-import { asBoolean, asId, asLine, asObject, asOptionalString, asString } from '../util/validate';
+import { asId, asLine, asObject, asOptionalString, asString } from '../util/validate';
 
 export type AccountSignInChannels =
   | 'accounts:cliStatus'
@@ -40,7 +40,9 @@ export function createAccountSignInHandlers(ctx: AppContext, accountsState: () =
   };
 
   const adoptArgs = (p: Record<string, unknown>) => {
-    const remember = asBoolean(p.remember, 'remember');
+    // Sign-ins are always remembered (OS keychain) so the account stays signed in.
+    void p.remember;
+    const remember = ctx.accountSecrets.available();
     const target = p.accountId === undefined || p.accountId === null ? undefined : ctx.accounts.get(asId(p.accountId, 'accountId'));
     if (p.accountId && !target) throw new AppError({ code: 'unknown-account', title: 'Account Not Found', message: 'This account is no longer in the app. Add it again.' });
     return { remember, target, apiBase: apiBaseOf(p) ?? target?.apiBaseUrl };

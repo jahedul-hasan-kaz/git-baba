@@ -272,7 +272,7 @@ describe('security mapping', () => {
 
 describe('account sessions', () => {
   const enc: Encryptor = { isAvailable: () => true, encrypt: (s) => Buffer.from(s), decrypt: (b) => b.toString() };
-  it('keeps the token in memory only, verifies the account, and ends on sign-out', async () => {
+  it('verifies the account, keeps it signed in across restarts, and ends on sign-out', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gg-sess-'));
     const accounts = new AccountStore(path.join(dir, 'a.json'));
     const secrets = new AccountSecretStore(path.join(dir, 's'), enc);
@@ -283,8 +283,28 @@ describe('account sessions', () => {
     const st = await sessions.signIn({ accountId: acc.id, token: 'ghp_session' });
     expect(st.active).toBe(true);
     expect(sessions.client(acc.id).login).toBe('jahedul');
-    expect(fs.readdirSync(dir)).toEqual(['a.json']); // nothing written besides the account identity
-    sessions.end(acc.id);
+    expect(secrets.get(acc.id)).toBe('ghp_session'); // saved encrypted so the user stays signed in
+    sessions.end(acc.id); // e.g. app restart
     expect(() => sessions.client(acc.id)).toThrow(/Sign in/);
+    await sessions.ensure(acc.id);
+    expect(sessions.client(acc.id).login).toBe('jahedul');
+  });
+
+  it('asks to sign in again when GitHub rejects the saved token (password changed)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gg-sess-'));
+    const accounts = new AccountStore(path.join(dir, 'a.json'));
+    const secrets = new AccountSecretStore(path.join(dir, 's'), enc);
+    const acc = accounts.upsert('jahedul', null, []);
+    let revoked = false;
+    const { impl } = fake((u) => (revoked ? json({ message: 'Bad credentials' }, 401) : u.pathname === '/user' ? json({ login: 'jahedul', name: null }, 200, { 'x-oauth-scopes': 'repo' }) : json([])));
+    const sessions = new AccountSessions(() => ({ accounts, accountSecrets: secrets, githubFor: (b) => new GitHubService(b, impl) }));
+    await sessions.signIn({ accountId: acc.id, token: 'ghp_session' });
+    revoked = true;
+    expect(await sessions.stillValid(acc.id)).toBe(false);
+    sessions.end(acc.id);
+    await expect(sessions.ensure(acc.id)).rejects.toMatchObject({ friendly: { code: 'session-expired', title: 'Sign In Again' } });
+    expect(secrets.has(acc.id)).toBe(false); // the rejected credential is forgotten
+    await sessions.ensure(acc.id); // nothing saved any more: no error, just signed out
+    expect(sessions.status(acc.id).active).toBe(false);
   });
 });

@@ -31,13 +31,13 @@ function cliStatusFor(apiBaseUrl: string | undefined, fresh = false): Promise<Cl
  * Credential for ONE operation of a specific GitHub account. Sources, best first:
  *  - the credential the user explicitly chose to remember (OS keychain),
  *  - the GitHub CLI's sign-in for this login (after "Sign in with browser"; read in main only),
- *  - a token typed now (used for this operation and dropped unless "Remember" is ticked).
+ *  - a token typed now (used for this operation and kept encrypted in the OS keychain so the account stays signed in).
  */
 export function AccountCredentialFields({ account, encryptionAvailable, purpose, onChange, retention = 'used for this operation, then removed from memory' }: Props) {
   const [cli, setCli] = useState<CliAccountsStatus | null>(null);
   const [source, setSource] = useState<Source>(account.remembered ? 'remembered' : 'token');
   const [token, setToken] = useState('');
-  const [remember, setRemember] = useState(false);
+  const remember = true; // always kept (OS keychain) so the account stays signed in
   const [browser, setBrowser] = useState(false);
   const cliHas = !!cli?.logins.some((l) => l.toLowerCase() === account.login.toLowerCase());
 
@@ -59,7 +59,7 @@ export function AccountCredentialFields({ account, encryptionAvailable, purpose,
     else if (source === 'cli' && cliHas) onChange({ accountId: account.id, useCli: true, remember });
     else if (source === 'token' && token.trim()) onChange({ accountId: account.id, token: token.trim(), remember });
     else onChange(null);
-  }, [source, token, remember, account, onChange, cliHas]);
+  }, [source, token, account, onChange, cliHas]);
 
   const sources: { id: Source; label: string; show: boolean }[] = [
     { id: 'remembered', label: '🔑 Remembered', show: account.remembered },
@@ -86,7 +86,7 @@ export function AccountCredentialFields({ account, encryptionAvailable, purpose,
           ))}
         </div>
       )}
-      {source === 'remembered' && account.remembered && <div className="small muted">Uses the credential you chose to remember for {account.login} (OS keychain).</div>}
+      {source === 'remembered' && account.remembered && <div className="small muted">Signed in as {account.login} (saved in the OS keychain).</div>}
       {source === 'cli' && cliHas && (
         <div className="small muted">
           Uses the GitHub CLI sign-in of {account.login} on {cli?.host}. Git Baba checks it belongs to {account.login}; {retention}.
@@ -114,14 +114,6 @@ export function AccountCredentialFields({ account, encryptionAvailable, purpose,
             </span>
           )}
         </div>
-      )}
-      {source !== 'remembered' && (
-        <label className="check small">
-          <input type="checkbox" checked={remember} disabled={!encryptionAvailable} onChange={(e) => setRemember(e.target.checked)} />
-          <span>
-            Remember this credential {encryptionAvailable ? '(encrypted in the OS keychain — you can forget it any time in Accounts)' : '(unavailable: no OS keychain on this system)'}
-          </span>
-        </label>
       )}
       {browser && (
         <AddAccountDialog

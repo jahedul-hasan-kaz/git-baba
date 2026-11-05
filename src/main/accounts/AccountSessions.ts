@@ -6,6 +6,12 @@ import { GitHubClient } from '../github/client/GitHubClient';
 import type { FetchLike } from '../github/GitHubService';
 import { authenticateAccount, type AccountAuthDeps } from './accountAuth';
 
+/** Errors meaning GitHub refused the credential itself (HTTP 401), not a network problem. */
+export function isRejectedCredential(err: unknown): boolean {
+  const code = err instanceof AppError ? err.friendly.code : (err as { code?: string } | null)?.code;
+  return code === 'session-expired' || code === 'github-auth-failed';
+}
+
 const SESSION_TTL_MS = 12 * 60 * 60_000;
 
 interface Session {
@@ -21,11 +27,12 @@ interface Session {
 /**
  * Signed-in sessions for GitHub accounts, held ONLY in main-process memory.
  * A session starts when the user authenticates an account (token verified to belong to it),
- * and ends on sign-out, account removal, app exit, or after 12 hours. Nothing is persisted;
- * a remembered keychain credential is used only if the user opted into remembering it.
+ * and ends on sign-out, account removal, app exit, or after 12 hours. The token itself is
+ * saved encrypted in the OS keychain at sign-in, and `ensure` restores the session from it.
  */
 export class AccountSessions {
   private readonly sessions = new Map<string, Session>();
+  private readonly restoring = new Map<string, Promise<void>>();
 
   constructor(
     private readonly deps: () => AccountAuthDeps,
@@ -47,6 +54,64 @@ export class AccountSessions {
       timer,
     });
     return this.status(auth.account.id);
+  }
+
+  /**
+   * Makes sure the account has a live session: when there is none (app restart, 12-hour expiry)
+   * it signs in again with the credential saved in the OS keychain, so the user stays signed in.
+   * If GitHub rejects that credential (password changed, token revoked or expired), it is
+   * forgotten and an actionable "sign in again" error is thrown.
+   */
+  async ensure(accountId: string | null): Promise<void> {
+    if (!accountId) return;
+    const s = this.sessions.get(accountId);
+    if (s && s.expiresAt > Date.now()) return;
+    const deps = this.deps();
+    if (!deps.accountSecrets.has(accountId)) return;
+    const pending = this.restoring.get(accountId);
+    if (pending) return pending;
+    const run = this.signIn({ accountId, useRemembered: true })
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        if (isRejectedCredential(err)) throw this.invalidate(accountId);
+        throw err; // network etc.: keep the saved credential, try again next time
+      })
+      .finally(() => this.restoring.delete(accountId));
+    this.restoring.set(accountId, run);
+    return run;
+  }
+
+  /**
+   * GitHub rejected the account's token: end the session, forget the saved credential and
+   * return the error that asks the user to sign in again.
+   */
+  invalidate(accountId: string): AppError {
+    this.end(accountId);
+    const deps = this.deps();
+    try {
+      deps.accountSecrets.forget(accountId);
+    } catch {
+      // nothing saved
+    }
+    const login = deps.accounts.get(accountId)?.login ?? 'your account';
+    return new AppError({
+      code: 'session-expired',
+      title: 'Sign In Again',
+      message: `GitHub no longer accepts the saved sign-in for ${login}. This happens when the password is changed, the token is revoked or it expires. Sign in again to continue.`,
+      actions: ['review-auth'],
+    });
+  }
+
+  /** Re-checks the session token with GitHub: false = rejected (401), null = no session or could not tell. */
+  async stillValid(accountId: string): Promise<boolean | null> {
+    const s = this.sessions.get(accountId);
+    if (!s) return null;
+    try {
+      await this.deps().githubFor(s.apiBase).getAuthenticatedUser(s.token);
+      return true;
+    } catch (err) {
+      return isRejectedCredential(err) ? false : null;
+    }
   }
 
   end(accountId: string): void {
@@ -81,7 +146,7 @@ export class AccountSessions {
     const s = this.sessions.get(accountId);
     if (!s || s.expiresAt <= Date.now()) {
       const login = this.deps().accounts.get(accountId)?.login ?? 'this account';
-      throw new AppError({ code: 'session-required', title: 'Sign In Required', message: `Sign in to ${login} to load GitHub data. The session is kept in memory only.`, actions: ['review-auth'] });
+      throw new AppError({ code: 'session-required', title: 'Sign In Required', message: `Sign in to ${login} to load GitHub data. You stay signed in until you sign out.`, actions: ['review-auth'] });
     }
     return { client: new GitHubClient(s.apiBase, s.token, this.fetchImpl), login: s.login, accountId };
   }

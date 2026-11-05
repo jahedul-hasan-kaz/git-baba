@@ -62,7 +62,7 @@ const METHODS: {
  *  - Browser: the GitHub device flow (via the GitHub CLI). The password is typed on github.com — never here.
  *  - Personal access token, with live kind detection and links that create one with good defaults.
  *  - SSH key: `ssh -T` tells which login the key belongs to → an "SSH only" account (no API features).
- * Git Baba stores only the account identity; a token is kept in the OS keychain only when "Remember" is ticked.
+ * Git Baba stores only the account identity; the verified token is kept encrypted in the OS keychain so the account stays signed in until you sign out.
  */
 export function AddAccountDialog({
   onClose,
@@ -75,9 +75,10 @@ export function AddAccountDialog({
   account?: AccountSummary;
   initial?: SignInMethod;
 }) {
-  const { accounts, setAccounts, refreshSession, toast } = useApp();
+  const { setAccounts, refreshSession, toast } = useApp();
   const [step, setStep] = useState<Step>(initial ?? "choose");
-  const [remember, setRemember] = useState(false);
+  // Sign-ins are always remembered (OS keychain) so the account stays signed in.
+  const remember = true;
   const [enterpriseOn, setEnterpriseOn] = useState(!!account?.apiBaseUrl);
   const [enterprise, setEnterprise] = useState(account?.apiBaseUrl ?? "");
   const [busy, setBusy] = useState(false);
@@ -86,7 +87,6 @@ export function AddAccountDialog({
   const apiBaseUrl =
     enterpriseOn && enterprise.trim() ? enterprise.trim() : undefined;
   const host = apiBaseUrl ? safeHost(apiBaseUrl) : "github.com";
-  const encryption = !!accounts?.encryptionAvailable;
   const upgrading = !!account;
 
   const finish = async (
@@ -168,24 +168,6 @@ export function AddAccountDialog({
             ))}
           </div>
           <div className="ax-add-opts">
-            <label
-              className="check small"
-              title={
-                encryption
-                  ? "Encrypted with the OS keychain. You can forget it any time."
-                  : "No OS keychain on this system"
-              }
-            >
-              <input
-                type="checkbox"
-                checked={remember}
-                disabled={!encryption}
-                onChange={(e) => setRemember(e.target.checked)}
-              />
-              <span>
-                Remember on this computer{encryption ? "" : " (unavailable)"}
-              </span>
-            </label>
             <label className="check small">
               <input
                 type="checkbox"
@@ -211,12 +193,6 @@ export function AddAccountDialog({
                 DevOps, Bitbucket…) don’t need an account here: Git Credential
                 Manager asks for your username & password when you push.
               </span>
-            </div>
-          )}
-          {!remember && (
-            <div className="ax-foot small muted">
-              Without “Remember”, the sign-in lasts until you quit Git Baba
-              (max. 12 h). Only the account name is saved.
             </div>
           )}
         </div>
@@ -274,27 +250,6 @@ export function AddAccountDialog({
         />
       )}
 
-      {(step === "browser" || step === "pat") && (
-        <label
-          className="check small ax-remember"
-          title={
-            encryption
-              ? "Encrypted with the OS keychain. You can forget it any time."
-              : "No OS keychain on this system"
-          }
-        >
-          <input
-            type="checkbox"
-            checked={remember}
-            disabled={!encryption || busy}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          <span>
-            Remember on this computer{" "}
-            {remember ? "(OS keychain)" : "— otherwise until you quit Git Baba"}
-          </span>
-        </label>
-      )}
 
       {step === "done" && done && (
         <div className="ax-done">

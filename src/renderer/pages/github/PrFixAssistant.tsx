@@ -53,7 +53,7 @@ export function PrFixAssistant({ repoId, base, head, createWithCli, retry, useGi
   const [fix, setFix] = useState<Fix | null>(null);
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState('');
-  const [remember, setRemember] = useState(false);
+  const remember = true;
   const [tokenStep, setTokenStep] = useState<1 | 2>(1);
   const [stillFailing, setStillFailing] = useState<FriendlyError | null>(null);
 
@@ -248,11 +248,8 @@ export function PrFixAssistant({ repoId, base, head, createWithCli, retry, useGi
                   <div className="field" style={{ marginBottom: 0 }}>
                     <label>Paste the new token for {diag.login}</label>
                     <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_… or ghp_…" autoFocus spellCheck={false} autoComplete="off" />
-                    <span className="hint">Checked against GitHub first. It must belong to {diag.login}. Kept in memory for this session only unless you choose to remember it.</span>
+                    <span className="hint">Checked against GitHub first. It must belong to {diag.login}. Saved encrypted in the OS keychain so you stay signed in.</span>
                   </div>
-                  <label className="check">
-                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember it in the system keychain (encrypted)
-                  </label>
                   {stillFailing && <ErrorPanel error={stillFailing} />}
                   <div className="row">
                     <button className="btn ghost" onClick={() => setTokenStep(1)} disabled={busy}>

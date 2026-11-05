@@ -118,12 +118,12 @@ export function SessionGate({ children, what }: { children: ReactNode; what: str
         <div className="card">
           <h3>🔐 Sign in to {activeAccount.login}</h3>
           <p className="small">
-            {what} load data from GitHub as the account selected in the header. Signing in starts a session that is held <strong>in memory only</strong> — it ends when you sign out, quit Git Baba, or
-            after 12 hours. Nothing is written to disk unless you tick “Remember this credential”.
+            {what} load data from GitHub as the account selected in the header. You sign in once: the token is checked with GitHub and kept encrypted in the OS keychain, so you
+            stay signed in until you sign out. If you change your GitHub password or the token is revoked, Git Baba asks you to sign in again.
           </p>
           {error && <ErrorPanel error={error} />}
           <AccountCredentialFields key={key} account={activeAccount} encryptionAvailable={!!accounts?.encryptionAvailable} purpose={`sign in and use ${what}`}
-            retention="then kept in memory only until you sign out, quit Git Baba or 12 hours pass"
+            retention="then kept in the OS keychain until you sign out"
             onChange={onCred}
           />
           <div className="row mt">

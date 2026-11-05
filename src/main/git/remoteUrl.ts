@@ -1,4 +1,5 @@
 import type { AuthMethod, RemoteProtocol } from '../../shared/types';
+import { resolveSshHost } from './sshConfig';
 
 export interface ParsedRemote {
   protocol: RemoteProtocol;
@@ -54,7 +55,8 @@ export function parseRemoteUrl(url: string, githubHosts: string[] = ['github.com
       };
     }
     if (scheme === 'ssh' || scheme === 'git+ssh') {
-      return { ...base, protocol: 'ssh', host, owner, repo, isGitHub };
+      const real = resolveSshHost(host);
+      return { ...base, protocol: 'ssh', host: real, owner, repo, isGitHub: githubHosts.includes(real) };
     }
     if (scheme === 'file') {
       return { ...base, protocol: 'local' };
@@ -69,7 +71,8 @@ export function parseRemoteUrl(url: string, githubHosts: string[] = ['github.com
 
   const scp = SCP_LIKE.exec(trimmed);
   if (scp) {
-    const host = scp[2].toLowerCase();
+    // SSH host aliases from ~/.ssh/config (e.g. "work-account" -> github.com).
+    const host = resolveSshHost(scp[2].toLowerCase());
     const { owner, repo } = splitOwnerRepo(scp[3]);
     return { ...base, protocol: 'ssh', host, owner, repo, isGitHub: githubHosts.includes(host) };
   }
