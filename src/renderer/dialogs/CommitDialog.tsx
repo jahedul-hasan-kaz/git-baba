@@ -28,6 +28,7 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
   const [done, setDone] = useState<CommitInfo | 'continued' | null>(null);
   const [idName, setIdName] = useState('');
   const [idEmail, setIdEmail] = useState('');
+  const [asAccount, setAsAccount] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -37,6 +38,10 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
       setSigning(p.defaultSigning);
       setIdName(p.identity.name ?? '');
       setIdEmail(p.identity.email ?? '');
+      // Default to the account's identity when the git identity is clearly someone else's.
+      const a = p.accountAuthor;
+      const mine = !!a && [p.identity.name, p.identity.email].some((v) => (v ?? '').toLowerCase().includes(a.login.toLowerCase()));
+      setAsAccount(!!a && !mine);
     } catch (err) {
       setError(toFriendly(err));
     }
@@ -66,7 +71,7 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
     setError(null);
     try {
       if (mode === 'commit') {
-        const c = await call('commit:execute', { repoId, confirmationId: preview.confirmationId, message, signing });
+        const c = await call('commit:execute', { repoId, confirmationId: preview.confirmationId, message, signing, authorAccount: asAccount && !!preview.accountAuthor });
         // The composer may be unmounted after a commit, so drop the saved draft here or it comes back later.
         try {
           localStorage.removeItem(`gb.draft.${repoId}`);
@@ -113,7 +118,7 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
     );
   }
 
-  const canConfirm = !!preview && !identityMissing && (mode === 'continue' || message.trim().length > 0) && !busy;
+  const canConfirm = !!preview && (!identityMissing || (asAccount && !!preview.accountAuthor)) && (mode === 'continue' || message.trim().length > 0) && !busy;
 
   return (
     <Modal
@@ -148,7 +153,23 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
             <dt>Branch</dt>
             <dd>{preview.branch ?? 'detached HEAD'}</dd>
             <dt>Author</dt>
-            <dd>{identityMissing ? <span className="badge danger">not configured</span> : `${preview.identity.name} <${preview.identity.email}>`}</dd>
+            <dd>
+              {preview.accountAuthor ? (
+                <div className="segmented" role="radiogroup" aria-label="Author">
+                  <button type="button" className={asAccount ? 'on' : ''} onClick={() => setAsAccount(true)} title={`${preview.accountAuthor.name} <${preview.accountAuthor.email}>`}>
+                    👤 {preview.accountAuthor.login} <span className="muted small">(GitHub account)</span>
+                  </button>
+                  <button type="button" className={!asAccount ? 'on' : ''} onClick={() => setAsAccount(false)} disabled={identityMissing}>
+                    ✎ {identityMissing ? 'Git identity (not configured)' : `${preview.identity.name} <${preview.identity.email}>`}
+                  </button>
+                </div>
+              ) : identityMissing ? (
+                <span className="badge danger">not configured</span>
+              ) : (
+                `${preview.identity.name} <${preview.identity.email}>`
+              )}
+              {preview.accountAuthor && asAccount && <div className="small muted">{preview.accountAuthor.name} &lt;{preview.accountAuthor.email}&gt; — for this commit only; your Git config is not changed.</div>}
+            </dd>
             <dt>Repository hooks</dt>
             <dd>{preview.hooksEnabled ? <span className="badge warn">enabled — pre-commit/commit-msg hooks will run</span> : <span className="badge ok">disabled</span>}</dd>
             <dt>Expected result</dt>
@@ -157,7 +178,7 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
             </dd>
           </dl>
 
-          {identityMissing && (
+          {identityMissing && !(asAccount && preview.accountAuthor) && (
             <div className="card">
               <h3>Configure Git identity for this repository</h3>
               <div className="grid-2">

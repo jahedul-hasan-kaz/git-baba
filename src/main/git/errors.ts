@@ -273,6 +273,18 @@ const RULES: Rule[] = [
 ];
 
 export function friendlyFromGitOutput(operation: string, text: string, technical: string): FriendlyError {
+  // "remote: Permission to owner/repo.git denied to <login>." — name the account git actually used.
+  const deniedTo = /Permission to (\S+?)(?:\.git)? denied to ([A-Za-z0-9-]+)/i.exec(text);
+  if (deniedTo) {
+    return {
+      code: 'permission-denied',
+      title: `Signed In as ${deniedTo[2]}`,
+      message: `GitHub received ${deniedTo[2]}'s credentials, and ${deniedTo[2]} cannot write to ${deniedTo[1]}. They usually come from Git Credential Manager, which remembers one login per host. Choose the account that owns the repository under "Push as" (its sign-in is used directly), or use a token of that account.`,
+      reasons: [`Git Credential Manager still holds ${deniedTo[2]}'s login for github.com`, `${deniedTo[2]} is not a collaborator on ${deniedTo[1]}`],
+      actions: ['review-auth'],
+      technical,
+    };
+  }
   for (const rule of RULES) {
     if (rule.test.test(text)) return { ...rule.build(operation), technical };
   }

@@ -52,3 +52,12 @@ describe('one active account at a time', () => {
     expect(() => assertRepoAccountActive(accounts, repo('s'), parseRemoteUrl('https://github.com/shared/s.git'), 'push')).not.toThrow();
   });
 });
+
+import { friendlyFromGitOutput } from '../src/main/git/errors';
+describe('push denied to another login', () => {
+  it('names the account git used', () => {
+    const f = friendlyFromGitOutput('Push', 'remote: Permission to shermanhashem-byte/test-3.git denied to jahedul-hasan-kaz.\nfatal: unable to access ... 403', '');
+    expect(f.title).toBe('Signed In as jahedul-hasan-kaz');
+    expect(f.message).toContain('shermanhashem-byte/test-3');
+  });
+});

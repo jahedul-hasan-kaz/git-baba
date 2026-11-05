@@ -48,10 +48,19 @@ function mask(v: string): string {
  * Only methods applicable to the repository are listed. Secrets live in local
  * component state only and disappear when the dialog closes.
  */
-export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave, savedSshKey = null, repoId, purpose, onChange, asLabel, account }: Props) {
-  const { showError, toast } = useApp();
-  const preferred: AuthMethod | null = options.length === 1 ? options[0].method : options.find((o) => o.method === 'github-app' && githubApp) ? 'github-app' : null;
+export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave, savedSshKey = null, repoId, purpose, onChange, asLabel, account: accountProp }: Props) {
+  const { showError, toast, activeAccount, session, repos } = useApp();
+  // Default to the account the repository belongs to.
+  const account = accountProp !== undefined ? accountProp : (repos.find((r) => r.id === repoId)?.account?.login ?? null);
+  // The repository's account is the active one and signed in: git can use that sign-in directly
+  // (instead of whatever Git Credential Manager has cached for github.com).
+  const accountReady = !!account && !!activeAccount && activeAccount.login.toLowerCase() === account.toLowerCase() && (!!session?.active || activeAccount.remembered) && options.some((o) => o.method === 'pat');
+  const preferred: AuthMethod | null = options.length === 1 ? options[0].method : options.find((o) => o.method === 'github-app' && githubApp) ? 'github-app' : accountReady ? 'pat' : null;
   const [method, setMethod] = useState<AuthMethod | null>(preferred);
+  const [useAcct, setUseAcct] = useState(true);
+  useEffect(() => {
+    if (accountReady) setMethod((m) => m ?? 'pat');
+  }, [accountReady]);
   // SSH
   const [ssh, setSsh] = useState<{ input: SshKeyInput | null; summary: string }>({ input: null, summary: '' });
   const onSsh = useCallback((input: SshKeyInput | null, summary: string) => setSsh({ input, summary }), []);
@@ -99,7 +108,8 @@ export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave,
         if (ssh.input) sel = { input: { method: 'ssh', ...ssh.input }, summary: ssh.summary };
         break;
       case 'pat':
-        if (useSavedPat) sel = { input: { method: 'pat', useSaved: true, username: username || undefined }, summary: 'Saved personal access token (encrypted on this computer)' };
+        if (accountReady && useAcct) sel = { input: { method: 'pat', useAccount: true }, summary: `GitHub account ${account} (signed in)` };
+        else if (useSavedPat) sel = { input: { method: 'pat', useSaved: true, username: username || undefined }, summary: 'Saved personal access token (encrypted on this computer)' };
         else if (token.trim())
           sel = {
             input: { method: 'pat', token: token.trim(), username: username.trim() || undefined, saveForRepo: savePat },
@@ -129,7 +139,7 @@ export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave,
     }
     onChange(sel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [method, ssh, username, token, useSavedPat, savePat, appId, owner, repo, installationId, keyMode, pem, keyInfo, saveKey, rememberApp, tokenMode, existingToken, generated, onChange]);
+  }, [accountReady, useAcct, account, method, ssh, username, token, useSavedPat, savePat, appId, owner, repo, installationId, keyMode, pem, keyInfo, saveKey, rememberApp, tokenMode, existingToken, generated, onChange]);
 
   const loadKey = async () => {
     try {
@@ -313,13 +323,21 @@ export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave,
 
       {method === 'pat' && (
         <div className="auth-form">
-          {patOption?.hasSaved && (
+          {accountReady && (
+            <label className="check">
+              <input type="checkbox" checked={useAcct} onChange={(e) => setUseAcct(e.target.checked)} />
+              <span>
+                Use <strong>{account}</strong>’s sign-in <span className="muted small">(recommended — no token to paste, and not the login Windows Credential Manager has cached)</span>
+              </span>
+            </label>
+          )}
+          {!(accountReady && useAcct) && patOption?.hasSaved && (
             <label className="check">
               <input type="checkbox" checked={useSavedPat} onChange={(e) => setUseSavedPat(e.target.checked)} />
               <span>Use the token saved for this repository</span>
             </label>
           )}
-          {!useSavedPat && (
+          {!(accountReady && useAcct) && !useSavedPat && (
             <>
               <div className="grid-2">
                 <div className="field">

@@ -136,7 +136,21 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
     return repoIdentity(repo, remoteUrl ? parseRemoteUrl(remoteUrl) : null).account;
   }
 
+  /** The active account's own sign-in: bypasses whatever Git Credential Manager has cached for the host. */
+  async function accountAuth(repo: RepoRecord, remoteUrl: string, purpose: AuthPurpose) {
+    const activeId = ctx.accounts.activeId();
+    const s = activeId ? await ctx.sessions.token(activeId) : null;
+    if (!s) {
+      const login = activeId ? ctx.accounts.get(activeId)?.login : null;
+      throw new AppError({ code: 'session-required', title: 'Sign In Required', message: login ? `Sign in to ${login} to ${purpose} as that account.` : 'Add and sign in to a GitHub account first.', actions: ['review-auth'] });
+    }
+    const resolved = await resolveAuth(authDeps, repo, remoteUrl, { method: 'pat', token: s.token, username: 'x-access-token' }, purpose);
+    resolved.description = `GitHub account ${s.login} (signed in)`;
+    return resolved;
+  }
+
   async function authFor(repo: RepoRecord, remoteUrl: string, input: AuthInput, purpose: AuthPurpose) {
+    if (input.method === 'pat' && input.useAccount) return accountAuth(repo, remoteUrl, purpose);
     const resolved = await resolveAuth(authDeps, repo, remoteUrl, input, purpose);
     const parsedRemote = parseRemoteUrl(remoteUrl);
     const account = repoAccount(repo, remoteUrl);
@@ -292,7 +306,18 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
       hooksEnabled: repo.settings.runHooks,
       operation: status.operation,
       savedSshKey: savedSshKey(repo),
+      accountAuthor: await accountAuthor(repo, git),
     };
+  }
+
+  /** Author identity of the active account when the repository belongs to it (GitHub noreply email). */
+  async function accountAuthor(repo: RepoRecord, git: GitService): Promise<{ login: string; name: string; email: string } | null> {
+    const remote = await primaryRemote(git, null).catch(() => null);
+    const parsed = remote ? parseRemoteUrl(remote.url) : null;
+    const owner = repoOwnerAccount(ctx.accounts, repo, parsed);
+    if (!owner || owner.id !== ctx.accounts.activeId() || !parsed?.isGitHub) return null;
+    const host = parsed.host === 'github.com' ? 'users.noreply.github.com' : `users.noreply.${parsed.host}`;
+    return { login: owner.login, name: owner.name || owner.login, email: `${owner.login}@${host}` };
   }
 
   async function verifyCommitReview(repoId: string, git: GitService, kind: 'commit' | 'continue', confirmationId: unknown, signing: string): Promise<CommitReview> {
@@ -805,14 +830,16 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
       const message = asString(p.message, 'Commit message', { max: 20_000 });
       const signing = asEnum(p.signing, 'signing', ['none', 'gpg', 'ssh', 'x509'] as const);
       await guardAccount(repo, git, 'commit');
+      const asAccount = p.authorAccount === true ? await accountAuthor(repo, git) : null;
+      if (p.authorAccount === true && !asAccount) throw new AppError({ code: 'changed-since-review', title: 'Account Changed', message: 'The active account changed after you reviewed the commit. Review it again.' });
       return ctx.withLock(repo.id, async () => {
         const review = await verifyCommitReview(repo.id, git, 'commit', p.confirmationId, signing);
-        const identity = await git.identity();
+        const identity = asAccount ?? (await git.identity());
         if (!identity.name || !identity.email) {
           throw new AppError({ code: 'identity-missing', title: 'Git Identity Not Configured', message: 'Set your name and email before committing.', actions: ['set-identity'] });
         }
         try {
-          const commit = await git.commit(message, signing);
+          const commit = await git.commit(message, signing, asAccount ? { author: { name: asAccount.name, email: asAccount.email } } : {});
           ctx.recordOperation(repo, 'Commit', 'SUCCESS', `${commit.shortHash} "${commit.subject}" (${review.fileCount} file(s), ${signing === 'none' ? 'unsigned' : `${signing} signed`})`);
           return commit;
         } catch (err) {
@@ -1675,7 +1702,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
     ...createBranchHandlers(ctx, { authFor, primaryRemote, savedSshKey, repoAccount, matchResult }),
     ...createExtraHandlers(ctx, {
       summarize,
-      resolveCloneAuth: (url, auth) => resolveAuth(authDeps, placeholderRepo, url, auth, 'clone'),
+      resolveCloneAuth: (url, auth) => (auth.method === 'pat' && auth.useAccount ? accountAuth(placeholderRepo, url, 'clone') : resolveAuth(authDeps, placeholderRepo, url, auth, 'clone')),
     }),
   };
 }

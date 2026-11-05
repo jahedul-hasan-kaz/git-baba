@@ -273,6 +273,8 @@ export interface PatAuthInput {
   token?: string;
   useSaved?: boolean;
   saveForRepo?: boolean;
+  /** Use the active GitHub account's sign-in (token stays in the main process). */
+  useAccount?: boolean;
 }
 
 export interface GitHubAppAuthInput {
@@ -421,6 +423,8 @@ export interface CommitPreview {
   hooksEnabled: boolean;
   operation: InProgressOperation;
   savedSshKey: SavedSshKey | null;
+  /** The active GitHub account the repository belongs to, offered as the commit author. */
+  accountAuthor: { login: string; name: string; email: string } | null;
 }
 
 /** Everything an auth dialog needs to prefill itself for one repository. */

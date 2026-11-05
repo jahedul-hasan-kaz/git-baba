@@ -380,8 +380,10 @@ export class GitService {
   // Commit
   // ---------------------------------------------------------------------
 
-  async commit(message: string, signing: SigningMethod, opts: { allowEmpty?: boolean } = {}): Promise<CommitInfo> {
+  async commit(message: string, signing: SigningMethod, opts: { allowEmpty?: boolean; author?: { name: string; email: string } } = {}): Promise<CommitInfo> {
     const args = this.signingArgs(signing);
+    // Author/committer for this commit only (the repository's git config is not changed).
+    if (opts.author) args.push('-c', `user.name=${opts.author.name}`, '-c', `user.email=${opts.author.email}`);
     // Same as `git commit -F`: keep lines starting with "#" (such as "#42 fix …").
     args.push('commit', '--file=-', '--cleanup=whitespace');
     args.push(signing === 'none' ? '--no-gpg-sign' : '--gpg-sign');

@@ -114,6 +114,13 @@ export class AccountSessions {
     }
   }
 
+  /** The live session token (main process only), restoring a saved sign-in if needed. */
+  async token(accountId: string): Promise<{ token: string; login: string } | null> {
+    await this.ensure(accountId);
+    const s = this.sessions.get(accountId);
+    return s && s.expiresAt > Date.now() ? { token: s.token, login: s.login } : null;
+  }
+
   end(accountId: string): void {
     const s = this.sessions.get(accountId);
     if (!s) return;

@@ -36,6 +36,8 @@ export function parseAuthInput(value: unknown): AuthInput {
     case 'ssh':
       return { method, ...parseSshKeyInput(o) };
     case 'pat': {
+      const useAccount = asOptionalBoolean(o.useAccount, 'useAccount') ?? false;
+      if (useAccount) return { method, useAccount: true };
       const useSaved = asOptionalBoolean(o.useSaved, 'useSaved') ?? false;
       const token = useSaved ? undefined : asString(o.token, 'token', { max: 512 });
       return {
