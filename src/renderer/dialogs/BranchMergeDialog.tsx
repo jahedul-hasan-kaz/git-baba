@@ -331,7 +331,7 @@ export function MergeBranchesDialog({ repoId, source, target, initialMode = 'dir
                 <span className={`badge ${CATEGORY[c.category].cls}`}>{CATEGORY[c.category].label}</span>
                 {c.hint && <span className="muted">{c.hint}</span>}
               </div>
-              <ErrorPanel error={error} onAction={(a: ErrorAction) => (a === 'review-auth' ? resetAuth() : a === 'retry' ? void load() : undefined)} available={['review-auth', 'retry']} />
+              <ErrorPanel error={error} onAction={(a: ErrorAction) => (a === 'review-auth' ? resetAuth() : a === 'retry' ? void load() : undefined)} available={['review-auth', 'retry']} onSwitched={() => { resetAuth(); void load(); }} />
             </>
           );
         })()}

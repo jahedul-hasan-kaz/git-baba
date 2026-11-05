@@ -430,6 +430,7 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
     'git:mergePreview': async (payload) => {
       const p = asObject(payload);
       const { repo, git } = ctx.git(p.repoId);
+      await guardAccount(repo, git, 'merge branches');
       const source = asBranchName(p.source, 'source branch');
       const target = asBranchName(p.target, 'target branch');
       if (source === target) throw new AppError({ code: 'same-branch', title: 'Same Branch', message: 'Choose two different branches.' });
