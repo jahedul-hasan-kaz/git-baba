@@ -28,7 +28,18 @@ export interface RepoSettings {
   sshKeyPath?: string;
   /** GitHub account (app-level) associated with this repository. */
   accountId?: string;
+  /**
+   * How push, pull, fetch and merge authenticate by default. The dialogs preselect it; a linked
+   * GitHub App still takes priority. Unset: whatever is already set up (remembered SSH key, saved
+   * token), else the Git identity (system Git setup).
+   */
+  remoteAuth?: RemoteAuthPreference;
+  /** Commit signing default: sign with the configured key, or commit unsigned. Unset: follow git config commit.gpgsign. */
+  commitSigning?: CommitSigningPreference;
 }
+
+export type RemoteAuthPreference = 'ssh' | 'pat' | 'system';
+export type CommitSigningPreference = 'signed' | 'unsigned';
 
 export type OperationStatus = 'SUCCESS' | 'WARNING' | 'CANCELLED' | 'FAILED';
 
@@ -1232,4 +1243,54 @@ export interface CodeSearchHit {
   path: string;
   line: number | null;
   text: string;
+}
+
+/** What is set up for a repository's authentication and signing — in Git Baba and in Git itself. */
+export interface RepoAccessOverview {
+  remote: { name: string; url: string; protocol: string; host: string | null; owner: string | null; repo: string | null; isGitHub: boolean } | null;
+  /** Methods the remote supports (as offered in push dialogs). */
+  available: AuthMethod[];
+  detected: {
+    /** git config credential.helper (e.g. "manager"), set outside Git Baba. */
+    credentialHelper: string | null;
+    /** git config core.sshCommand, set outside Git Baba. */
+    sshCommand: string | null;
+    /** GIT_SSH / GIT_SSH_COMMAND in the environment (e.g. plink / Pageant). */
+    sshEnv: string | null;
+    /** SSH key remembered in Git Baba for this repository (path only). */
+    sshKeyPath: string | null;
+    /** Token saved (encrypted) in Git Baba for this repository. */
+    patSaved: boolean;
+    githubAppKeySaved: boolean;
+  };
+  signing: {
+    name: string | null;
+    email: string | null;
+    signingKey: string | null;
+    gpgFormat: string | null;
+    commitGpgSign: boolean;
+    /** Signing method matching gpg.format, offered in the commit dialog. */
+    signedMethod: SigningMethod | null;
+    signedLabel: string | null;
+  };
+  /** What the dialogs will preselect now, and why. */
+  effective: {
+    remote: { method: AuthMethod | null; source: 'github-app' | 'repo-setting' | 'remembered' | 'git-config' | 'default' };
+    commit: { method: SigningMethod; source: 'github-app' | 'repo-setting' | 'remembered' | 'git-config' | 'default' };
+  };
+}
+
+export interface RemoteChangeCheck {
+  name: string;
+  /** False when the change cannot be saved (invalid URL, credentials in it…). */
+  ok: boolean;
+  /** Nothing changes (same URL). */
+  unchanged: boolean;
+  isNew: boolean;
+  from: { url: string; protocol: string; host: string | null; owner: string | null; repo: string | null } | null;
+  to: { url: string; protocol: string; host: string | null; owner: string | null; repo: string | null; isGitHub: boolean };
+  checks: { level: 'ok' | 'warn' | 'error' | 'info'; title: string; detail: string }[];
+  reachable: 'yes' | 'no' | 'skipped';
+  /** Default branch and branch count seen on the new remote, when reachable. */
+  remoteHead: { branches: number; defaultBranch: string | null } | null;
 }

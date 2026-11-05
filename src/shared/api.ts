@@ -1,5 +1,9 @@
 import type {
   AuthContext,
+  CommitSigningPreference,
+  RemoteAuthPreference,
+  RepoAccessOverview,
+  RemoteChangeCheck,
   AuthInput,
   AuthOption,
   BranchInfo,
@@ -137,7 +141,10 @@ import type {
 type R = { repoId: string };
 
 /** `null` clears an optional setting. */
-export type RepoSettingsPatch = Partial<Omit<RepoSettings, 'githubApp' | 'apiBaseUrl' | 'sshKeyPath'>> & {
+export type RepoSettingsPatch = Partial<Omit<RepoSettings, 'githubApp' | 'apiBaseUrl' | 'sshKeyPath' | 'remoteAuth' | 'commitSigning'>> & {
+  /** null returns to automatic (detected) behaviour. */
+  remoteAuth?: RemoteAuthPreference | null;
+  commitSigning?: CommitSigningPreference | null;
   githubApp?: GitHubAppConfig | null;
   apiBaseUrl?: string | null;
   /** Can only be cleared from the UI; key paths are set from the native file dialog. */
@@ -188,6 +195,8 @@ export interface ApiMap {
   'git:setIdentity': { req: R & { name: string; email: string }; res: GitIdentity };
   'git:remotes': { req: R; res: RemoteInfo[] };
   'git:setRemote': { req: R & { name: string; url: string }; res: RemoteInfo[] };
+  'git:checkRemoteChange': { req: R & { name: string; url: string; probe?: boolean }; res: RemoteChangeCheck };
+  'repo:accessOverview': { req: R; res: RepoAccessOverview };
   'git:removeRemote': { req: R & { name: string; confirmed: true }; res: RemoteInfo[] };
   'git:branches': { req: R; res: BranchInfo[] };
   'git:branchOrigins': { req: R; res: Record<string, BranchOrigin> };

@@ -429,6 +429,36 @@ export class GitService {
     await this.git(existing ? ['remote', 'set-url', '--', name, url] : ['remote', 'add', '--', name, url]);
   }
 
+  /**
+   * Read-only reachability check of a URL with the system's own Git setup (ssh-agent, Git
+   * Credential Manager's stored login). Never prompts: a check that needs input fails fast.
+   */
+  async probeRemote(url: string): Promise<{ ok: true; branches: number; defaultBranch: string | null } | { ok: false; message: string }> {
+    const v = validateRemoteUrl(url);
+    if (!v.ok) return { ok: false, message: v.reason };
+    const env: Record<string, string> = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never', GIT_ASKPASS: '', SSH_ASKPASS: '' };
+    if (!(await this.getConfig('core.sshCommand')) && !process.env.GIT_SSH && !process.env.GIT_SSH_COMMAND) {
+      env.GIT_SSH_COMMAND = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10';
+    }
+    const res = await this.git(['ls-remote', '--symref', '--', url], { env, timeoutMs: 20_000, okExitCodes: [1, 2, 128] }).catch((err: unknown) => ({
+      exitCode: -1,
+      stdout: '',
+      stderr: (err as { stderr?: string }).stderr || (err instanceof Error ? err.message : String(err)),
+    }));
+    if (res.exitCode !== 0) {
+      const line = res.stderr
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !/^warning:/i.test(l))
+        .slice(0, 2)
+        .join(' ');
+      return { ok: false, message: line || 'The remote did not answer.' };
+    }
+    const lines = res.stdout.split(/\r?\n/);
+    const head = /^ref: refs\/heads\/(\S+)\tHEAD$/.exec(lines.find((l) => l.startsWith('ref: ')) ?? '');
+    return { ok: true, branches: lines.filter((l) => /\trefs\/heads\//.test(l)).length, defaultBranch: head?.[1] ?? null };
+  }
+
   async removeRemote(name: string): Promise<void> {
     if (!isValidRemoteName(name)) throw new AppError({ code: 'invalid-remote', title: 'Invalid Remote Name', message: `"${name}" is not a valid remote name.` });
     await this.git(['remote', 'remove', '--', name]);

@@ -4,6 +4,7 @@ import type { AuthInput, AuthMethod, AuthOption, GeneratedTokenInfo, GitHubAppCo
 import { call } from '../services/api';
 import { useApp } from '../state/AppState';
 import { SshKeyFields } from './SshKeyFields';
+import { remoteAuthDefault, type DefaultSource } from '../../shared/authDefaults';
 
 export interface AuthSelection {
   input: AuthInput | null;
@@ -27,6 +28,12 @@ interface Props {
   /** GitHub login shown on the account-token button in the `asLabel` row. */
   account?: string | null;
 }
+
+const SOURCE_NOTE: Partial<Record<DefaultSource, string>> = {
+  'github-app': 'Preselected: the GitHub App linked to this repository',
+  'repo-setting': 'Preselected from this repository’s Security & access settings',
+  remembered: 'Preselected: already set up for this repository',
+};
 
 const AS_VERB: Record<Props['purpose'], string> = { push: 'Push as', fetch: 'Sign in as', pr: 'Create as', clone: 'Clone as' };
 const AS_ICON: Record<AuthMethod, string> = { pat: '👤', 'github-app': '🤖', ssh: '🔑', system: '💻', none: '○' };
@@ -55,19 +62,24 @@ export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave,
   // The repository's account is the active one and signed in: git can use that sign-in directly
   // (instead of whatever Git Credential Manager has cached for github.com).
   const accountReady = !!account && !!activeAccount && activeAccount.login.toLowerCase() === account.toLowerCase() && (!!session?.active || activeAccount.remembered) && options.some((o) => o.method === 'pat');
-  const preferred: AuthMethod | null = options.length === 1 ? options[0].method : options.find((o) => o.method === 'github-app' && githubApp) ? 'github-app' : accountReady ? 'pat' : null;
-  const [method, setMethod] = useState<AuthMethod | null>(preferred);
+  // Preselect what the repository is configured for (GitHub App > repository setting > already set up > Git identity).
+  const repoRecord = repos.find((r) => r.id === repoId);
+  const preset = remoteAuthDefault({
+    available: options.map((o) => o.method),
+    githubAppLinked: !!githubApp,
+    preference: repoRecord?.settings.remoteAuth,
+    sshKeyRemembered: !!savedSshKey,
+    patSaved: !!options.find((o) => o.method === 'pat')?.hasSaved,
+  });
+  const [method, setMethod] = useState<AuthMethod | null>(preset.method);
   const [useAcct, setUseAcct] = useState(true);
-  useEffect(() => {
-    if (accountReady) setMethod((m) => m ?? 'pat');
-  }, [accountReady]);
   // SSH
   const [ssh, setSsh] = useState<{ input: SshKeyInput | null; summary: string }>({ input: null, summary: '' });
   const onSsh = useCallback((input: SshKeyInput | null, summary: string) => setSsh({ input, summary }), []);
   // PAT
   const [username, setUsername] = useState('');
   const [token, setToken] = useState('');
-  const [useSavedPat, setUseSavedPat] = useState(false);
+  const [useSavedPat, setUseSavedPat] = useState(() => !!options.find((o) => o.method === 'pat')?.hasSaved);
   const [savePat, setSavePat] = useState(false);
   // GitHub App
   const [editingApp, setEditingApp] = useState(!githubApp);
@@ -297,6 +309,7 @@ export function AuthMethodPicker({ options, githubApp, remoteOwnerRepo, canSave,
           ))}
         </div>
       </div>
+      {method === preset.method && SOURCE_NOTE[preset.source] && <p className="small auth-preset-note">✓ {SOURCE_NOTE[preset.source]}</p>}
       {current && method !== 'ssh' && <p className="small muted auth-as-desc">{current.description}</p>}
       {current?.viaHttps && (
         <div className="banner info small">

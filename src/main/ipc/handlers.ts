@@ -13,6 +13,7 @@ import type {
   PushRuleReport,
   PullPreview,
   PushPreview,
+  RemoteChangeCheck,
   RepoRecord,
   RepoSettings,
   RepoSummary,
@@ -26,7 +27,8 @@ import { EMPTY_TREE, GitService } from '../git/GitService';
 import { countChanges } from '../git/parsers';
 import { analyzeReport, recheckReport } from '../git/pushRuleAnalysis';
 import { parsePushRejection } from '../git/pushRules';
-import { parseRemoteUrl } from '../git/remoteUrl';
+import { parseRemoteUrl, validateRemoteUrl } from '../git/remoteUrl';
+import { commitSigningDefault, remoteAuthDefault } from '../../shared/authDefaults';
 import { findPrivateKeyFor, inspectSshKey, parsePublicKey } from '../git/sshKeys';
 import { runGit } from '../git/runner';
 import { describeAuthOptions, resolveAuth, revokeWithRetry, type AuthPurpose } from '../github/authResolver';
@@ -287,7 +289,11 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
     }
     const identity = await git.identity();
     const signingOptions = git.signingOptions(identity);
-    const defaultSigning = identity.commitGpgSign && signingOptions.length > 1 ? signingOptions[1].method : 'none';
+    const defaultSigning = commitSigningDefault({
+      preference: repo.settings.commitSigning,
+      commitGpgSign: identity.commitGpgSign,
+      signedMethod: signingOptions.length > 1 ? signingOptions[1].method : null,
+    }).method;
     const review: CommitReview = {
       fingerprint: await git.stagedFingerprint(),
       headOid: status.headOid,
@@ -511,6 +517,8 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
         if (s.sshKeyPath !== null) throw new ValidationError('The SSH key can only be chosen with the file dialog');
         patch.sshKeyPath = undefined;
       }
+      if (s.remoteAuth !== undefined) patch.remoteAuth = s.remoteAuth === null ? undefined : asEnum(s.remoteAuth, 'remote authentication', ['ssh', 'pat', 'system'] as const);
+      if (s.commitSigning !== undefined) patch.commitSigning = s.commitSigning === null ? undefined : asEnum(s.commitSigning, 'commit signing', ['signed', 'unsigned'] as const);
       if (s.apiBaseUrl !== undefined) patch.apiBaseUrl = s.apiBaseUrl ? validateApiBaseUrl(asLine(s.apiBaseUrl, 'API URL', { max: 300 })) : undefined;
       if (s.githubApp !== undefined) {
         if (s.githubApp === null) patch.githubApp = undefined;
@@ -707,8 +715,153 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
       const name = asRemoteName(p.name);
       const url = asLine(p.url, 'Remote URL', { max: 2048 });
       await git.setRemote(name, url);
+      // A GitHub App linked to the old repository cannot authenticate the new one.
+      const app = repo.settings.githubApp;
+      const next = parseRemoteUrl(url);
+      if (name === 'origin' && app && (next.owner?.toLowerCase() !== app.owner.toLowerCase() || next.repo?.toLowerCase() !== app.repo.toLowerCase())) {
+        ctx.repos.updateSettings(repo.id, { githubApp: undefined });
+      }
       ctx.recordOperation(repo, 'Configure remote', 'SUCCESS', `${name} → ${redactSecrets(url)}`);
       return (await git.remotes()).map((r) => ({ ...r, fetchUrl: redactSecrets(r.fetchUrl), pushUrl: redactSecrets(r.pushUrl) }));
+    },
+
+    'git:checkRemoteChange': async (payload) => {
+      const p = asObject(payload);
+      const { repo, git } = ctx.git(p.repoId);
+      const name = asRemoteName(p.name);
+      const url = asLine(p.url, 'Remote URL', { max: 2048 }).trim();
+      const probe = p.probe !== false;
+      const existing = (await git.remotes()).find((r) => r.name === name) ?? null;
+      const before = existing ? parseRemoteUrl(existing.pushUrl) : null;
+      const after = parseRemoteUrl(url);
+      const view = (u: string, x: ReturnType<typeof parseRemoteUrl>) => ({ url: redactSecrets(u), protocol: x.protocol, host: x.host ?? null, owner: x.owner ?? null, repo: x.repo ?? null });
+      const checks: RemoteChangeCheck['checks'] = [];
+      const valid = validateRemoteUrl(url);
+      const unchanged = !!existing && existing.pushUrl.trim() === url;
+      const sameRepo =
+        !!before &&
+        !!before.owner &&
+        !!before.repo &&
+        before.owner.toLowerCase() === (after.owner ?? '').toLowerCase() &&
+        before.repo.toLowerCase() === (after.repo ?? '').toLowerCase() &&
+        (before.host ?? '') === (after.host ?? '');
+      if (!valid.ok) checks.push({ level: 'error', title: 'This URL cannot be used', detail: valid.reason });
+      else if (unchanged) checks.push({ level: 'info', title: 'Nothing changes', detail: `${name} already points to this URL.` });
+      else {
+        checks.push({ level: 'ok', title: 'Valid remote URL', detail: `${after.protocol.toUpperCase()}${after.host ? ` · ${after.host}` : ''}${after.owner ? ` · ${after.owner}/${after.repo}` : ''}` });
+        if (before && sameRepo && before.protocol !== after.protocol) {
+          checks.push({
+            level: 'info',
+            title: `Same repository, now over ${after.protocol.toUpperCase()}`,
+            detail:
+              after.protocol === 'ssh'
+                ? 'Git will use your SSH keys (ssh-agent or a key you choose) instead of a token or Git Credential Manager.'
+                : 'Git will use a token, the signed-in account or Git Credential Manager instead of SSH keys.',
+          });
+        } else if (before && sameRepo) checks.push({ level: 'ok', title: 'Same repository', detail: 'Branches, tracking and pull requests keep working as before.' });
+        else if (before && before.owner && after.owner) {
+          checks.push({
+            level: 'warn',
+            title: 'A different repository',
+            detail: `${before.owner}/${before.repo} → ${after.owner}/${after.repo}. Fetch, push and pull requests will go to the new repository; remote-tracking branches update on the next fetch.`,
+          });
+        }
+        if (!after.isGitHub && after.protocol !== 'local') checks.push({ level: 'info', title: 'Not a GitHub remote', detail: 'Pull requests, Actions and GitHub App sign-in are not available for this remote.' });
+        const app = repo.settings.githubApp;
+        if (name === 'origin' && app && (after.owner?.toLowerCase() !== app.owner.toLowerCase() || after.repo?.toLowerCase() !== app.repo.toLowerCase())) {
+          checks.push({ level: 'warn', title: 'The linked GitHub App will be unlinked', detail: `It was linked to ${app.owner}/${app.repo}. Link it again for the new repository under Security & access.` });
+        }
+        if (name === 'origin' && after.owner && !repo.settings.accountId) {
+          const owner = ctx.accounts.matchOwner(after.owner)?.account ?? null;
+          const prev = before?.owner ? (ctx.accounts.matchOwner(before.owner)?.account ?? null) : null;
+          if (owner && owner.id !== prev?.id) {
+            const active = ctx.accounts.activeId();
+            checks.push({
+              level: owner.id === active ? 'info' : 'warn',
+              title: `Belongs to ${owner.login}`,
+              detail: owner.id === active ? `${owner.login} is your active account.` : `You will need to switch to ${owner.login} to work with this repository.`,
+            });
+          }
+        }
+      }
+      let reachable: RemoteChangeCheck['reachable'] = 'skipped';
+      let remoteHead: RemoteChangeCheck['remoteHead'] = null;
+      if (valid.ok && !unchanged && probe) {
+        const r = await git.probeRemote(url);
+        if (r.ok) {
+          reachable = 'yes';
+          remoteHead = { branches: r.branches, defaultBranch: r.defaultBranch };
+          checks.push({
+            level: 'ok',
+            title: 'Reachable',
+            detail: r.branches ? `${r.branches} branch${r.branches === 1 ? '' : 'es'} found${r.defaultBranch ? ` · default ${r.defaultBranch}` : ''}.` : 'The repository is empty — your first push will create its branches.',
+          });
+        } else {
+          reachable = 'no';
+          checks.push({
+            level: 'warn',
+            title: 'Could not reach it with your current Git setup',
+            detail: `${redactSecrets(r.message)} You can still save it: push and fetch dialogs let you choose SSH, a token or the GitHub App.`,
+          });
+        }
+      }
+      return {
+        name,
+        ok: valid.ok && !unchanged,
+        unchanged,
+        isNew: !existing,
+        from: existing && before ? view(existing.pushUrl, before) : null,
+        to: { ...view(url, after), isGitHub: after.isGitHub },
+        checks,
+        reachable,
+        remoteHead,
+      };
+    },
+
+    'repo:accessOverview': async (payload) => {
+      const p = asObject(payload);
+      const { repo, git } = ctx.git(p.repoId);
+      const st = await git.status().catch(() => null);
+      const remote = await primaryRemote(git, st?.upstream ?? null).catch(() => null);
+      const parsed = remote ? parseRemoteUrl(remote.url) : null;
+      const saved = ctx.secrets.status(repo.id);
+      const available = describeAuthOptions(repo, remote?.url ?? null, 'push', saved).map((o) => o.method);
+      const [identity, credentialHelper, sshCommand] = await Promise.all([git.identity(), git.getConfig('credential.helper'), git.getConfig('core.sshCommand')]);
+      const signingOptions = git.signingOptions(identity);
+      const signed = signingOptions.length > 1 ? signingOptions[1] : null;
+      const remoteDefault = remoteAuthDefault({
+        available,
+        githubAppLinked: !!repo.settings.githubApp,
+        preference: repo.settings.remoteAuth,
+        sshKeyRemembered: !!repo.settings.sshKeyPath,
+        patSaved: saved.pat,
+      });
+      const commitDefault = commitSigningDefault({ preference: repo.settings.commitSigning, commitGpgSign: identity.commitGpgSign, signedMethod: signed?.method ?? null });
+      return {
+        remote:
+          remote && parsed
+            ? { name: remote.name, url: redactSecrets(remote.url), protocol: parsed.protocol, host: parsed.host ?? null, owner: parsed.owner ?? null, repo: parsed.repo ?? null, isGitHub: parsed.isGitHub }
+            : null,
+        available,
+        detected: {
+          credentialHelper,
+          sshCommand,
+          sshEnv: process.env.GIT_SSH_COMMAND || process.env.GIT_SSH || null,
+          sshKeyPath: repo.settings.sshKeyPath ?? null,
+          patSaved: saved.pat,
+          githubAppKeySaved: saved.githubAppKey,
+        },
+        signing: {
+          name: identity.name,
+          email: identity.email,
+          signingKey: identity.signingKey,
+          gpgFormat: identity.gpgFormat,
+          commitGpgSign: identity.commitGpgSign,
+          signedMethod: signed?.method ?? null,
+          signedLabel: signed?.label ?? null,
+        },
+        effective: { remote: remoteDefault, commit: commitDefault },
+      };
     },
 
     'git:removeRemote': async (payload) => {

@@ -11,8 +11,9 @@ import { DeployKeys } from './DeployKeys';
 import { RemoteRefs } from './RemoteRefs';
 import { RepoAppLink } from './RepoAppLink';
 import { RepoSecrets } from './RepoSecrets';
+import { RepoAccess } from './RepoAccess';
 
-type Section = 'general' | 'secrets' | 'deploy-keys' | 'refs' | 'app' | 'danger';
+type Section = 'general' | 'access' | 'secrets' | 'deploy-keys' | 'refs' | 'app' | 'danger';
 
 interface Item {
   id: Section;
@@ -25,6 +26,7 @@ interface Item {
 
 const ITEMS: Item[] = [
   { id: 'general', icon: '⚙', label: 'General', hint: 'Identity, remotes, safety, local credentials' },
+  { id: 'access', icon: '🛡', label: 'Security & access', hint: 'Push & merge credential, GitHub App, commit signing' },
   { id: 'secrets', icon: '🔐', label: 'Secrets', hint: 'Actions, Copilot agent, environments, organisation', needs: 'admin' },
   { id: 'deploy-keys', icon: '🔑', label: 'Deploy keys', hint: 'Machine access with SSH', needs: 'admin' },
   { id: 'refs', icon: '⎇', label: 'Branches, tags & commits', hint: 'As they are on GitHub', needs: 'read' },
@@ -100,6 +102,7 @@ export function RepoSettingsShell() {
       <div className="settings-body">
         <h2 style={{ marginTop: 0 }}>{ITEMS.find((i) => i.id === current)!.label}</h2>
         {current === 'general' && <RepoSettingsPage />}
+        {current === 'access' && <RepoAccess onOpenApps={ctx ? () => setSection('app') : undefined} />}
         {current !== 'general' && ctxError && !ctx && <ErrorPanel error={ctxError} />}
         {ctx && current === 'secrets' && <RepoSecrets repoId={repo.id} ctx={ctx} />}
         {ctx && current === 'deploy-keys' && <DeployKeys repoId={repo.id} />}

@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import type { RepoSettingsPatch } from '../../shared/api';
 import type { RemoteInfo } from '../../shared/types';
 import { ConfirmDialog } from '../dialogs/ConfirmDialog';
+import { RemoteChangeDialog } from '../dialogs/RemoteChangeDialog';
 import { useAsync } from '../hooks/useAsync';
 import { call } from '../services/api';
 import { useApp } from '../state/AppState';
 
 import { Select } from '../components/Select';
 export function RepoSettingsPage() {
-  const { activeRepo, revision, bump, showError, toast, selectRepo, info, requestAppSetup, accounts } = useApp();
+  const { activeRepo, revision, bump, showError, toast, selectRepo, info, accounts } = useApp();
   const repo = activeRepo!;
   const repoId = repo.id;
   const identity = useAsync(() => (repo.exists ? call('git:identity', { repoId }) : Promise.resolve(null)), [repoId, revision]);
@@ -18,6 +19,7 @@ export function RepoSettingsPage() {
   const [remoteName, setRemoteName] = useState('origin');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [pendingRemote, setPendingRemote] = useState<{ name: string; url: string } | null>(null);
   const [confirm, setConfirm] = useState<'remove-repo' | { remote: string } | null>(null);
 
   useEffect(() => {
@@ -129,8 +131,8 @@ export function RepoSettingsPage() {
             <div className="row">
               <input style={{ width: 140 }} value={remoteName} onChange={(e) => setRemoteName(e.target.value)} placeholder="origin" />
               <input value={remoteUrl} onChange={(e) => setRemoteUrl(e.target.value)} placeholder="https://github.com/owner/repo.git" spellCheck={false} />
-              <button className="btn primary" disabled={!remoteName || !remoteUrl} onClick={() => act(() => call('git:setRemote', { repoId, name: remoteName, url: remoteUrl }), `Remote ${remoteName} saved`)}>
-                Add / update
+              <button className="btn primary" disabled={!remoteName.trim() || !remoteUrl.trim()} onClick={() => setPendingRemote({ name: remoteName.trim(), url: remoteUrl.trim() })}>
+                {(remotes.data ?? []).some((r) => r.name === remoteName.trim()) ? `Check & change ${remoteName.trim()}` : 'Check & add'}
               </button>
             </div>
           </div>
@@ -173,35 +175,8 @@ export function RepoSettingsPage() {
       </div>
 
       <div className="card">
-        <h3>GitHub App</h3>
-        {repo.settings.githubApp ? (
-          <div className="row mb">
-            <span className="grow">
-              <span className="badge ok">linked</span> App <strong>{repo.settings.githubApp.appId}</strong> ·{' '}
-              <strong>
-                {repo.settings.githubApp.owner}/{repo.settings.githubApp.repo}
-              </strong>
-              {repo.settings.githubApp.installationId && <span className="muted"> · installation {repo.settings.githubApp.installationId}</span>}
-              {repo.savedSecrets.githubAppKey && <span className="badge info" style={{ marginLeft: 6 }}>key saved (encrypted)</span>}
-            </span>
-          </div>
-        ) : (
-          <p className="small muted">
-            {repo.github
-              ? `Not linked. Link your GitHub App to ${repo.github.owner}/${repo.github.repo} so auth dialogs don't ask for the App ID, owner and repository each time.`
-              : 'This repository has no GitHub remote.'}
-          </p>
-        )}
-        <div className="row mb">
-          <button className="btn primary" disabled={!repo.github} onClick={() => requestAppSetup(repoId)}>
-            {repo.settings.githubApp ? 'Change / re-validate…' : 'Set up GitHub App…'}
-          </button>
-          {repo.settings.githubApp && (
-            <button className="btn" onClick={() => update({ githubApp: null }, 'GitHub App unlinked')}>
-              Unlink
-            </button>
-          )}
-        </div>
+        <h3>GitHub Enterprise</h3>
+        <p className="small muted">The push / merge credential, GitHub App link and commit signing are under Security &amp; access.</p>
         <div className="field">
           <label>GitHub Enterprise API URL (optional)</label>
           <div className="row">
@@ -238,6 +213,19 @@ export function RepoSettingsPage() {
         </button>
       </div>
 
+      {pendingRemote && (
+        <RemoteChangeDialog
+          repoId={repoId}
+          name={pendingRemote.name}
+          url={pendingRemote.url}
+          onClose={() => setPendingRemote(null)}
+          onSaved={() => {
+            setPendingRemote(null);
+            setRemoteUrl('');
+            bump();
+          }}
+        />
+      )}
       {confirm === 'remove-repo' && (
         <ConfirmDialog
           title="Remove Repository from App"
