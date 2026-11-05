@@ -1,11 +1,20 @@
 name: Release
 
 # Builds the Windows and macOS executables and attaches them to a GitHub Release.
-# Push a tag like v0.1.0 (or run it manually) to publish a release for evaluators.
+# Any of these attaches the .exe and .dmg files to a release:
+#   - publish a release on GitHub (Releases → Draft a new release),
+#   - push a tag like v0.1.0,
+#   - run it manually from Actions with the tag of an existing release.
 on:
+  release:
+    types: [published]
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach files to (e.g. v0.1.0). Leave empty to only build.
+        required: false
 
 permissions:
   contents: write
@@ -23,6 +32,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -45,7 +56,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -54,5 +65,6 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
           files: artifacts/*
           generate_release_notes: true
