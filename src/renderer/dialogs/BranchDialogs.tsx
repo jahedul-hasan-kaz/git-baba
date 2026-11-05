@@ -212,6 +212,7 @@ export function PublishBranchDialog({ repoId, name, base, onClose, onDone }: { r
   const { auth, authKey, onAuth, resetAuth } = useAuthState();
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       setPreview(await call('git:publishPreview', { repoId, name, base: base || undefined }));
     } catch (err) {
@@ -279,7 +280,7 @@ export function PublishBranchDialog({ repoId, name, base, onClose, onDone }: { r
       size="wide"
       footer={<Footer auth={auth} busy={busy} disabled={!preview || commitInvalid} label="Create & Publish" busyLabel="Publishing…" onCancel={onClose} onRun={run} />}
     >
-      {error && <ErrorPanel error={error} onAction={(a: ErrorAction) => (a === 'review-auth' ? resetAuth() : a === 'retry' ? void run() : undefined)} available={['review-auth', 'retry']} />}
+      {error && <ErrorPanel error={error} onAction={(a: ErrorAction) => (a === 'review-auth' ? resetAuth() : a === 'retry' ? void run() : undefined)} available={['review-auth', 'retry']} onSwitched={() => { resetAuth(); void load(); }} />}
       {!preview && !error && <Spinner label="Preparing…" />}
       {preview && (
         <div className="grid-2" style={{ gap: 20, alignItems: 'start' }}>
@@ -365,6 +366,7 @@ export function DeleteBranchDialog({ repoId, branch, kind, onClose, onDone }: { 
   const { auth, authKey, onAuth, resetAuth } = useAuthState();
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       setPreview(await call('git:deletePreview', { repoId, branch, kind }));
     } catch (err) {
@@ -427,7 +429,7 @@ export function DeleteBranchDialog({ repoId, branch, kind, onClose, onDone }: { 
       size="wide"
       footer={<Footer auth={auth} busy={busy} disabled={!preview || blocked} label="Authenticate & Delete" busyLabel="Deleting…" onCancel={onClose} onRun={run} danger />}
     >
-      {error && <ErrorPanel error={error} onAction={(a: ErrorAction) => (a === 'review-auth' ? resetAuth() : a === 'retry' ? void run() : undefined)} available={['review-auth', 'retry']} />}
+      {error && <ErrorPanel error={error} onAction={(a: ErrorAction) => (a === 'review-auth' ? resetAuth() : a === 'retry' ? void run() : undefined)} available={['review-auth', 'retry']} onSwitched={() => { resetAuth(); void load(); }} />}
       {!preview && !error && <Spinner label="Checking the branch…" />}
       {preview && (
         <div className="grid-2" style={{ gap: 20, alignItems: 'start' }}>

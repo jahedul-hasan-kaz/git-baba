@@ -43,10 +43,13 @@ export function RepoView() {
   const otherAccount = activeRepo?.account && activeRepo.account.id !== activeAccount?.id ? activeRepo.account : null;
   const [setupDismissed, setSetupDismissed] = useState(() => readDismissed(activeRepo?.id));
   const [dialog, setDialog] = useState<'fetch' | 'pull' | 'push' | null>(null);
+  const lockedRef = useRef(false);
+  lockedRef.current = !!otherAccount;
   // Other screens (e.g. the clean Changes screen) can open the sync dialogs.
   useEffect(() => {
     const on = (e: Event) => {
       const d = (e as CustomEvent<'fetch' | 'pull' | 'push'>).detail;
+      if (lockedRef.current) return;
       if (d === 'fetch' || d === 'pull' || d === 'push') setDialog(d);
     };
     window.addEventListener('gb:repo-dialog', on);
@@ -103,6 +106,16 @@ export function RepoView() {
     ['settings', 'Settings', null, '⚙'],
   ];
 
+  const switchToOwner = async () => {
+    if (!otherAccount) return;
+    setAccounts(await call('accounts:setActive', { accountId: otherAccount.id }));
+    await refreshSession().catch(() => undefined);
+    toast(`Switched to ${otherAccount.login}`);
+    bump();
+  };
+  // Another account's repository: everything but Settings stays locked until the user switches.
+  const locked = !!otherAccount;
+
   const onPullDone = (r: PullResult | null) => {
     setDialog(null);
     bump();
@@ -121,7 +134,7 @@ export function RepoView() {
           status={st ?? null}
           loading={status.loading}
           inOperation={inOperation}
-          disabled={!activeRepo.exists}
+          disabled={!activeRepo.exists || locked}
           onRefresh={() => bump()}
           onFetch={() => setDialog('fetch')}
           onPull={() => setDialog('pull')}
@@ -142,7 +155,7 @@ export function RepoView() {
         </div>
       ) : (
         <>
-          {otherAccount && (
+          {otherAccount && repoTab === 'settings' && (
             <div className="banner warn" style={{ margin: '10px 18px 0' }}>
               <span className="icon">⇄</span>
               <div className="grow">
@@ -151,18 +164,13 @@ export function RepoView() {
               </div>
               <button
                 className="btn sm primary"
-                onClick={async () => {
-                  setAccounts(await call('accounts:setActive', { accountId: otherAccount.id }));
-                  await refreshSession().catch(() => undefined);
-                  toast(`Switched to ${otherAccount.login}`);
-                  bump();
-                }}
+                onClick={() => void switchToOwner()}
               >
                 Switch to {otherAccount.login}
               </button>
             </div>
           )}
-          {activeRepo.github && !activeRepo.settings.githubApp && !setupDismissed && (
+          {activeRepo.github && !activeRepo.settings.githubApp && !setupDismissed && !locked && (
             <div className="banner info" style={{ margin: '10px 18px 0' }}>
               <span className="icon">🔑</span>
               <div className="grow">
@@ -197,8 +205,24 @@ export function RepoView() {
               </button>
             </div>
           )}
-          <TabDock tabs={tabs} active={repoTab} onPick={setRepoTab} />
+          <TabDock tabs={tabs} active={repoTab} onPick={setRepoTab} locked={locked} />
 <Suspense fallback={<div className="content"><Spinner label="Loading…" /></div>}>
+          {locked && repoTab !== 'settings' ? (
+            <div className="content">
+              <div className="empty-state" style={{ textAlign: 'center', padding: '60px 20px' }}>
+                <div style={{ fontSize: 36 }}>🔒</div>
+                <h2>Switch to {otherAccount.login} to open this repository</h2>
+                <p className="muted">
+                  {activeRepo.name} belongs to {otherAccount.login}
+                  {activeAccount ? `, but you are using ${activeAccount.login}` : ''}. Changes, code, pull requests, Actions and syncing are available once {otherAccount.login} is the active account.
+                </p>
+                <button className="btn primary" onClick={() => void switchToOwner()}>
+                  ⇄ Switch to {otherAccount.login}
+                </button>
+              </div>
+            </div>
+          ) : (
+          <>
           {repoTab === 'changes' && <WorkspacePage status={st} reload={status.reload} error={status.error} />}
           {repoTab === 'code' && <CodePage key={repoId} />}
           {repoTab === 'pr' && <PullRequestPage />}
@@ -209,6 +233,8 @@ export function RepoView() {
             <div className="content">
               <RepoSettingsShell />
             </div>
+          )}
+          </>
           )}
 </Suspense>
         </>
@@ -297,7 +323,11 @@ function RepoIdentity() {
 }
 
 /** Tab bar with icons, a sliding active indicator, counts and Ctrl+1…9 shortcuts. */
-function TabDock({ tabs, active, onPick }: { tabs: [RepoTab, string, number | null, string][]; active: RepoTab; onPick: (t: RepoTab) => void }) {
+function TabDock({ tabs, active, onPick: pick, locked }: { tabs: [RepoTab, string, number | null, string][]; active: RepoTab; onPick: (t: RepoTab) => void; locked?: boolean }) {
+  const isOff = (t: RepoTab) => !!locked && t !== 'settings';
+  const onPick = (t: RepoTab) => {
+    if (!isOff(t)) pick(t);
+  };
   const ref = useRef<HTMLDivElement>(null);
   const [ink, setInk] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
@@ -333,9 +363,11 @@ function TabDock({ tabs, active, onPick }: { tabs: [RepoTab, string, number | nu
           data-tab={id}
           role="tab"
           aria-selected={active === id}
+          aria-disabled={isOff(id)}
           className={`tab ${active === id ? 'active' : ''} ${id === 'conflicts' ? 'alert' : ''}`}
+          style={isOff(id) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
           onClick={() => onPick(id)}
-          title={i < 9 ? `${label} (Ctrl+${i + 1})` : label}
+          title={isOff(id) ? `Switch account to use ${label}` : i < 9 ? `${label} (Ctrl+${i + 1})` : label}
         >
           <span className="tab-ico">{icon}</span>
           {label}
