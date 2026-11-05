@@ -1294,3 +1294,76 @@ export interface RemoteChangeCheck {
   /** Default branch and branch count seen on the new remote, when reachable. */
   remoteHead: { branches: number; defaultBranch: string | null } | null;
 }
+
+// ---------------------------------------------------------------------------
+// Notifications (activity on the active account's repositories)
+// ---------------------------------------------------------------------------
+
+export type NotificationKind =
+  | 'push'
+  | 'branch-create'
+  | 'branch-delete'
+  | 'tag'
+  | 'pr'
+  | 'review'
+  | 'comment'
+  | 'issue'
+  | 'workflow'
+  | 'release'
+  | 'worktree'
+  | 'repo';
+
+export type NotificationTone = 'success' | 'failure' | 'warning' | 'info' | 'neutral';
+
+export interface AppNotification {
+  id: string;
+  accountId: string;
+  accountLogin: string;
+  repoId: string;
+  /** owner/name, or the folder name for local-only events. */
+  repo: string;
+  kind: NotificationKind;
+  tone: NotificationTone;
+  /** Short verb phrase, e.g. "pushed 3 commits to". */
+  action: string;
+  /** What it happened to: branch, PR title, workflow name… */
+  subject: string;
+  /** Optional extra line: commit message, comment excerpt, run conclusion. */
+  detail?: string;
+  /** Who did it (GitHub login), when known. */
+  actor?: string;
+  /** Branch or tag involved. */
+  ref?: string;
+  /** PR / issue number. */
+  number?: number;
+  /** ISO time of the change on the remote. */
+  at: string;
+  read: boolean;
+  /** Done by the active account itself (shown, but never sent to the desktop). */
+  own: boolean;
+}
+
+export interface NotificationPrefs {
+  /** Show desktop (OS) notifications for new activity. */
+  desktop: boolean;
+  /** Also notify about your own activity (pushes from another computer…). */
+  includeOwn: boolean;
+  /** Pause all polling until this time (ISO), or null. */
+  snoozeUntil: string | null;
+}
+
+export interface NotificationFeed {
+  account: { id: string; login: string } | null;
+  items: AppNotification[];
+  unread: number;
+  prefs: NotificationPrefs;
+  /** Repositories watched for the active account. */
+  watching: string[];
+  /** Last successful check (ISO). */
+  checkedAt: string | null;
+  /** Why nothing is watched / the last check failed, if so. */
+  status: 'ok' | 'signed-out' | 'no-repos' | 'error' | 'snoozed';
+  message?: string;
+  /** Desktop notifications supported on this OS. */
+  desktopSupported: boolean;
+}

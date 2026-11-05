@@ -5,7 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 // Kept in sync with CHANNEL_PATTERN in src/shared/api.ts (a sandboxed preload cannot import local modules).
-const CHANNEL_PATTERN = /^(app|dialog|repo|git|commit|push|pull|conflict|pr|github|ssh|history|shell|accounts|create|clone|graph|session|gh|code):[A-Za-z]+$/;
+const CHANNEL_PATTERN = /^(app|dialog|repo|git|commit|push|pull|conflict|pr|github|ssh|history|shell|accounts|create|clone|graph|session|gh|code|notify):[A-Za-z]+$/;
 
 contextBridge.exposeInMainWorld('gitGuardian', {
   invoke(channel: string, payload?: unknown): Promise<unknown> {
@@ -23,5 +23,12 @@ contextBridge.exposeInMainWorld('gitGuardian', {
     const handler = (_e: unknown, payload: unknown) => callback(payload);
     ipcRenderer.on('gg:progress', handler);
     return () => ipcRenderer.removeListener('gg:progress', handler);
+  },
+  /** Subscribe to notification feed updates (one fixed channel, payload only). */
+  onNotify(callback: (event: unknown) => void): () => void {
+    if (typeof callback !== 'function') return () => undefined;
+    const handler = (_e: unknown, payload: unknown) => callback(payload);
+    ipcRenderer.on('gg:notify', handler);
+    return () => ipcRenderer.removeListener('gg:notify', handler);
   },
 });

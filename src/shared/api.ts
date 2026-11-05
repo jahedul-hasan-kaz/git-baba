@@ -1,6 +1,8 @@
 import type {
   AuthContext,
   CommitSigningPreference,
+  NotificationFeed,
+  NotificationPrefs,
   RemoteAuthPreference,
   RepoAccessOverview,
   RemoteChangeCheck,
@@ -195,6 +197,11 @@ export interface ApiMap {
   'git:setIdentity': { req: R & { name: string; email: string }; res: GitIdentity };
   'git:remotes': { req: R; res: RemoteInfo[] };
   'git:setRemote': { req: R & { name: string; url: string }; res: RemoteInfo[] };
+  'notify:feed': { req: void; res: NotificationFeed };
+  'notify:markAllRead': { req: void; res: NotificationFeed };
+  'notify:clear': { req: void; res: NotificationFeed };
+  'notify:refresh': { req: void; res: NotificationFeed };
+  'notify:setPrefs': { req: Partial<NotificationPrefs>; res: NotificationFeed };
   'git:checkRemoteChange': { req: R & { name: string; url: string; probe?: boolean }; res: RemoteChangeCheck };
   'repo:accessOverview': { req: R; res: RepoAccessOverview };
   'git:removeRemote': { req: R & { name: string; confirmed: true }; res: RemoteInfo[] };
@@ -583,4 +590,4 @@ export interface ApiMap {
 
 export type Channel = keyof ApiMap;
 
-export const CHANNEL_PATTERN = /^(app|dialog|repo|git|commit|push|pull|conflict|pr|github|ssh|history|shell|accounts|create|clone|graph|session|gh|code):[A-Za-z]+$/;
+export const CHANNEL_PATTERN = /^(app|dialog|repo|git|commit|push|pull|conflict|pr|github|ssh|history|shell|accounts|create|clone|graph|session|gh|code|notify):[A-Za-z]+$/;

@@ -3,6 +3,7 @@ import logoUrl from '../assets/logo.png';
 import { applyTheme, getTheme, resolveTheme, THEMES, type Theme } from '../services/theme';
 import { useApp, type GlobalView } from '../state/AppState';
 import { AccountSwitcher } from './AccountSwitcher';
+import { NotificationBell } from './NotificationBell';
 
 // Git Help lives in the footer's Help menu (F1); the header keeps only the global pages.
 const NAV: [GlobalView, string, string][] = [
@@ -33,6 +34,7 @@ export function AppHeader() {
       </nav>
       <span className="spacer" />
       <ThemeControl />
+      <NotificationBell />
       <AccountSwitcher />
     </header>
   );

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, safeStorage, session, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, Notification, safeStorage, session, shell, type IpcMainInvokeEvent } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -34,6 +34,11 @@ import { setGitExecPathForGpg } from './git/gpg';
 import { registerIpc } from './ipc/register';
 import { HistoryStore } from './repositories/HistoryStore';
 import { RepoStore } from './repositories/RepoStore';
+import { NotificationCenter, type WatchedRepo } from './notifications/NotificationCenter';
+import { desktopText } from './notifications/desktop';
+import { repoOwnerAccount } from './accounts/repoAccount';
+import { parseRemoteUrl } from './git/remoteUrl';
+import type { AppNotification } from '../shared/types';
 import { SecretStore, type Encryptor } from './repositories/SecretStore';
 
 const isDev = !app.isPackaged && process.argv.includes('--dev');
@@ -142,6 +147,47 @@ if (!app.isPackaged && process.env.GG_USER_DATA_DIR) {
 
 app.enableSandbox();
 
+// Windows shows toast notifications only for an app with an AppUserModelID (matches build.appId).
+if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'dev.gitbaba.app' : process.execPath);
+
+/** Brings the window forward and opens the notification panel. */
+function openNotifications(): void {
+  if (!mainWindow) createWindow();
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.show();
+  mainWindow?.focus();
+  mainWindow?.webContents.send('gg:notify', { type: 'open' });
+}
+
+// Keep a reference while shown: a garbage-collected Notification loses its click handler.
+const shownNotifications = new Set<Notification>();
+
+function showDesktop(items: AppNotification[]): void {
+  if (!Notification.isSupported() || items.length === 0) return;
+  // While the app is in front, the bell animates instead of interrupting with a banner.
+  if (mainWindow && mainWindow.isFocused() && mainWindow.isVisible()) return;
+  const t = desktopText(items);
+  const n = new Notification({
+    title: t.title,
+    subtitle: t.subtitle,
+    body: t.body,
+    silent: false,
+    urgency: items.some((i) => i.tone === 'failure') ? 'critical' : 'normal',
+    timeoutType: 'default',
+  });
+  shownNotifications.add(n);
+  const done = () => shownNotifications.delete(n);
+  n.on('click', () => {
+    openNotifications();
+    done();
+  });
+  n.on('close', done);
+  n.show();
+  // Draw attention without stealing focus (taskbar flash on Windows/Linux, dock bounce on macOS).
+  if (process.platform === 'darwin') app.dock?.bounce('informational');
+  else mainWindow?.flashFrame(true);
+}
+
 app.whenReady().then(() => {
   // Deny every permission request (camera, notifications, geolocation…).
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
@@ -177,6 +223,63 @@ app.whenReady().then(() => {
     })
     .catch(() => undefined);
   createWindow();
+  mainWindow?.on('focus', () => mainWindow?.flashFrame(false));
+
+  // Activity notifications for the active account's repositories.
+  const appCtx = ctx;
+  const remoteCache = new Map<string, { at: number; url: string | null }>();
+  const originOf = async (repoId: string): Promise<string | null> => {
+    const hit = remoteCache.get(repoId);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.url;
+    const remotes = await appCtx.git(repoId).git.remotes().catch(() => []);
+    const r = remotes.find((x) => x.name === 'origin') ?? remotes[0];
+    const url = r?.pushUrl ?? null;
+    remoteCache.set(repoId, { at: Date.now(), url });
+    return url;
+  };
+  const center = new NotificationCenter({
+    file: path.join(userData, 'notifications.json'),
+    activeAccount: () => {
+      const id = appCtx.accounts.activeId();
+      const a = id ? appCtx.accounts.get(id) : undefined;
+      return a ? { id: a.id, login: a.login } : null;
+    },
+    client: async (accountId) => {
+      const t = await appCtx.sessions.token(accountId).catch(() => null);
+      if (!t) return null;
+      try {
+        return appCtx.sessions.client(accountId).client;
+      } catch {
+        return null;
+      }
+    },
+    reposFor: async (accountId) => {
+      const out: WatchedRepo[] = [];
+      for (const repo of appCtx.repos.list()) {
+        if (!fs.existsSync(repo.path)) continue;
+        const url = await originOf(repo.id);
+        if (!url) continue;
+        const parsed = parseRemoteUrl(url);
+        if (!parsed.isGitHub || !parsed.owner || !parsed.repo) continue;
+        if (repoOwnerAccount(appCtx.accounts, repo, parsed)?.id !== accountId) continue;
+        out.push({ repo, accountId, owner: parsed.owner, name: parsed.repo });
+      }
+      return out;
+    },
+    worktrees: async (repoPath) => {
+      const r = await runGit({ cwd: repoPath, args: ['worktree', 'list', '--porcelain'] }).catch(() => null);
+      return r ? r.stdout : null;
+    },
+    desktop: showDesktop,
+    emit: (feed) => {
+      mainWindow?.webContents.send('gg:notify', { type: 'feed', feed });
+      // Unread count on the dock (macOS) / launcher (Linux Unity).
+      if (process.platform !== 'win32') app.setBadgeCount(feed.unread);
+    },
+    desktopSupported: Notification.isSupported(),
+  });
+  appCtx.notifications = center;
+  center.start();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -189,6 +292,7 @@ app.on('web-contents-created', (_e, contents) => {
 
 app.on('before-quit', () => {
   // Drop (and revoke) any in-memory tokens and keys.
+  ctx?.notifications?.stop();
   ctx?.vault.clear();
   ctx?.sessions.endAll();
 });

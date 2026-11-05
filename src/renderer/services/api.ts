@@ -1,11 +1,12 @@
 import type { ApiMap, Channel } from '../../shared/api';
-import type { FriendlyError, ProgressEvent, Result } from '../../shared/types';
+import type { FriendlyError, NotificationFeed, ProgressEvent, Result } from '../../shared/types';
 
 declare global {
   interface Window {
     gitGuardian: {
       invoke(channel: string, payload?: unknown): Promise<unknown>;
       onProgress(callback: (event: unknown) => void): () => void;
+      onNotify(callback: (event: unknown) => void): () => void;
     };
   }
 }
@@ -32,6 +33,16 @@ export async function call<C extends Channel>(channel: C, ...args: Args<C>): Pro
 /** Subscribe to live progress events (clone / create repository). Returns an unsubscribe function. */
 export function onProgress(callback: (event: ProgressEvent) => void): () => void {
   return window.gitGuardian.onProgress((e) => callback(e as ProgressEvent));
+}
+
+export type NotifyEvent = { type: 'feed'; feed: NotificationFeed } | { type: 'open' };
+
+/** Subscribe to notification feed updates and "open the panel" requests (from a clicked desktop notification). */
+export function onNotify(callback: (event: NotifyEvent) => void): () => void {
+  return window.gitGuardian.onNotify((e) => {
+    const ev = e as NotifyEvent;
+    if (ev && (ev.type === 'feed' || ev.type === 'open')) callback(ev);
+  });
 }
 
 export function toFriendly(err: unknown): FriendlyError {

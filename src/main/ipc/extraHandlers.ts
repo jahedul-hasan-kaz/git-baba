@@ -145,6 +145,8 @@ export function createExtraHandlers(
       const id = asObject(payload).accountId;
       // Switching only changes the default for NEW operations; repositories keep their own settings.
       ctx.accounts.setActive(id === null ? null : asId(id, 'accountId'));
+      // The notification feed follows the active account: show its list now and check it right away.
+      void ctx.notifications?.refresh().catch(() => undefined);
       return accountsState();
     },
 

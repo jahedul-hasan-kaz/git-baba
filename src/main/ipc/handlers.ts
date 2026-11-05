@@ -57,6 +57,7 @@ import {
 import { asConfirmed, parseAuthInput } from './authInput';
 import { createBranchHandlers, type BranchChannels } from './branchHandlers';
 import { createExtraHandlers, type ExtraChannels } from './extraHandlers';
+import { createNotifyHandlers, type NotifyChannels } from './notifyHandlers';
 import { createHistoryHandlers, type HistoryChannels } from './historyHandlers';
 import { assertRepoAccountActive, repoOwnerAccount } from '../accounts/repoAccount';
 import { createGitHubHandlers, type GitHubChannels } from './githubHandlers';
@@ -384,7 +385,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
   // Handlers
   // -------------------------------------------------------------------
 
-  const core: Omit<Handlers, ExtraChannels | GitHubChannels | BranchChannels | HistoryChannels> = {
+  const core: Omit<Handlers, ExtraChannels | GitHubChannels | BranchChannels | HistoryChannels | NotifyChannels> = {
     'app:info': async () => {
       let gitVersion: string | null = null;
       try {
@@ -1851,6 +1852,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
   return {
     ...core,
     ...createGitHubHandlers(ctx),
+    ...createNotifyHandlers(ctx),
     ...createHistoryHandlers(ctx, getWindow),
     ...createBranchHandlers(ctx, { authFor, primaryRemote, savedSshKey, repoAccount, matchResult }),
     ...createExtraHandlers(ctx, {

@@ -35,6 +35,9 @@ export class AppContext {
   /** Sends live progress/state for long operations to the window (set by index.ts). */
   progress: (event: ProgressEvent) => void = () => {};
 
+  /** Activity notifications for the active account (set by index.ts). */
+  notifications: import('./notifications/NotificationCenter').NotificationCenter | null = null;
+
   /** In-memory signed-in GitHub sessions (never persisted). */
   readonly sessions = new AccountSessions(() => ({ accounts: this.accounts, accountSecrets: this.accountSecrets, githubFor: (b: string) => this.githubFor(b) }));
 
