@@ -155,8 +155,9 @@ export function RepoView() {
         </div>
       ) : (
         <>
+          <div className="repo-banners">
           {otherAccount && repoTab === 'settings' && (
-            <div className="banner warn" style={{ margin: '10px 18px 0' }}>
+            <div className="banner warn">
               <span className="icon">⇄</span>
               <div className="grow">
                 <strong>This repository belongs to {otherAccount.login}.</strong>{' '}
@@ -171,7 +172,7 @@ export function RepoView() {
             </div>
           )}
           {activeRepo.github && !activeRepo.settings.githubApp && !setupDismissed && !locked && (
-            <div className="banner info" style={{ margin: '10px 18px 0' }}>
+            <div className="banner info">
               <span className="icon">🔑</span>
               <div className="grow">
                 <strong>GitHub repository: {activeRepo.github.owner}/{activeRepo.github.repo}.</strong> Link your GitHub App once so push and PR dialogs don't ask for the App ID, owner and repository
@@ -192,7 +193,7 @@ export function RepoView() {
             </div>
           )}
           {inOperation && repoTab !== 'conflicts' && (
-            <div className="banner warn" style={{ margin: '10px 18px 0' }}>
+            <div className="banner warn">
               <span className="icon">⚠</span>
               <div className="grow">
                 {switchSession.data && !st?.operation
@@ -205,6 +206,7 @@ export function RepoView() {
               </button>
             </div>
           )}
+          </div>
           <TabDock tabs={tabs} active={repoTab} onPick={setRepoTab} locked={locked} />
 <Suspense fallback={<div className="content"><Spinner label="Loading…" /></div>}>
           {locked && repoTab !== 'settings' ? (
