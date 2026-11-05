@@ -143,7 +143,7 @@ export function CommitDialog({ repoId, mode, initialMessage = '', onClose, onDon
           {mode === 'commit' ? 'You are about to create a Git commit.' : `Continuing the ${opName} will create commit(s).`} Please confirm the credentials/authentication method that should be used.
         </div>
       </div>
-      {error && <ErrorPanel error={error} />}
+      {error && <ErrorPanel error={error} onSwitched={() => void load()} />}
       {!preview && !error && <Spinner label="Preparing review…" />}
       {preview && (
         <>

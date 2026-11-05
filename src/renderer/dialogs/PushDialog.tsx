@@ -149,7 +149,19 @@ export function PushDialog({ repoId, onClose, onDone, onRequestPull }: Props) {
         </>
       }
     >
-      {error && <ErrorPanel error={error} onAction={onErrorAction} available={['review-auth', 'retry', ...(onRequestPull ? (['pull'] as ErrorAction[]) : [])]} />}
+      {error && (
+        <ErrorPanel
+          error={error}
+          onAction={onErrorAction}
+          available={['review-auth', 'retry', ...(onRequestPull ? (['pull'] as ErrorAction[]) : [])]}
+          onSwitched={() => {
+            // Stay open: reload the push for the account just switched to.
+            setError(null);
+            setAuthKey((k) => k + 1);
+            void load();
+          }}
+        />
+      )}
       {rules && (
         <PushRulesPanel
           repoId={repoId}

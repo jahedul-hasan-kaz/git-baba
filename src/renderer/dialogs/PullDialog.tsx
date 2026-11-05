@@ -158,7 +158,7 @@ export function PullDialog({ repoId, onClose, onDone }: Props) {
           setStep('auth');
         }}
       />
-      {error && <ErrorPanel error={error} onAction={(a: ErrorAction) => a === 'review-auth' && setAuthKey((k) => k + 1)} available={['review-auth']} />}
+      {error && <ErrorPanel error={error} onAction={(a: ErrorAction) => a === 'review-auth' && setAuthKey((k) => k + 1)} available={['review-auth']} onSwitched={() => { setError(null); setAuthKey((k) => k + 1); }} />}
 
       {(step === 'auth' || step === 'fetching') && (
         <div className="grid-2" style={{ gap: 20, alignItems: 'start' }}>
