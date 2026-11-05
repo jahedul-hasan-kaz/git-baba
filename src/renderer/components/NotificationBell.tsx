@@ -250,7 +250,7 @@ function Item({ n, isNew, delay }: { n: AppNotification; isNew: boolean; delay: 
       </div>
       <div className="nb-body">
         <div className="nb-line">
-          <strong>{n.actor ?? (n.kind === 'worktree' ? 'This computer' : 'Someone')}</strong>
+          <strong>{n.actor ?? (n.kind === 'worktree' ? 'This computer' : 'Someone')}</strong>{' '}
           <span className="nb-action">{n.action}</span> <strong className="nb-subject">{n.subject}</strong>
           {n.number ? <span className="nb-num"> #{n.number}</span> : null}
         </div>
@@ -272,7 +272,7 @@ function Item({ n, isNew, delay }: { n: AppNotification; isNew: boolean; delay: 
           </span>
         </div>
       </div>
-      {isNew && <span className="nb-dot" aria-label="new" />}
+      {isNew && <span className="sr-only">new</span>}
     </article>
   );
 }
