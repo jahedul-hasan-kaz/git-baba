@@ -24,6 +24,8 @@ import type {
 import type { AppContext } from '../context';
 import { AppError, toFriendlyError } from '../git/errors';
 import type { GitService } from '../git/GitService';
+import { assertRepoAccountActive } from '../accounts/repoAccount';
+import { parseRemoteUrl as parseRemoteForAccount } from '../git/remoteUrl';
 import { generateSshKey, inspectSshKey, listLocalPublicKeys, parsePublicKey, sshDirectory, verifySshPassphrase } from '../git/sshKeys';
 import { readSigningConfig, signingSettings, testSshConnection, writeSigningConfig } from '../git/sshTest';
 import { gpgStatus, listLocalGpgKeys, resetGpgLocation } from '../git/gpg';
@@ -221,6 +223,13 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
       // The conflicts of that switch are finished or undone: their undo snapshots no longer apply.
       await git.clearConflictSnapshots();
     }
+  }
+
+  /** One account at a time: refuses work on a repository that belongs to another added account. */
+  async function guardAccount(repo: import('../../shared/types').RepoRecord, git: GitService, what: string): Promise<void> {
+    const remotes = await git.remotes().catch(() => []);
+    const r = remotes.find((x) => x.name === 'origin') ?? remotes[0];
+    assertRepoAccountActive(ctx.accounts, repo, r ? parseRemoteForAccount(r.pushUrl) : null, what);
   }
 
   return {
@@ -546,6 +555,7 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
     'git:mergeExecute': async (payload) => {
       const p = asObject(payload);
       const { repo, git } = ctx.git(p.repoId);
+      await guardAccount(repo, git, 'merge and push');
       const auth = parseAuthInput(p.auth);
       const returnToCurrent = asBoolean(p.returnToCurrent, 'returnToCurrent');
       const allowUnrelated = p.allowUnrelated === true;
@@ -706,6 +716,7 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
     'git:publishPreview': async (payload) => {
       const p = asObject(payload);
       const { repo, git } = ctx.git(p.repoId);
+      await guardAccount(repo, git, 'publish a branch');
       const name = asBranchName(p.name, 'branch name');
       const base = p.base ? asBranchName(p.base, 'base branch') : null;
       const st = await git.status();
@@ -758,6 +769,7 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
     'git:publishExecute': async (payload) => {
       const p = asObject(payload);
       const { repo, git } = ctx.git(p.repoId);
+      await guardAccount(repo, git, 'publish a branch');
       const auth = parseAuthInput(p.auth);
       const switchTo = asBoolean(p.switchTo, 'switchTo');
       const commitMessage = p.commitMessage ? asString(p.commitMessage, 'Commit message', { max: 20_000 }) : null;

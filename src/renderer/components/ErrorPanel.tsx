@@ -1,5 +1,7 @@
 import type { ErrorAction, FriendlyError } from '../../shared/types';
 import { Modal } from './Modal';
+import { useState } from 'react';
+import { call } from '../services/api';
 import { useApp } from '../state/AppState';
 
 const ACTION_LABELS: Record<ErrorAction, string> = {
@@ -9,18 +11,46 @@ const ACTION_LABELS: Record<ErrorAction, string> = {
   'resolve-conflicts': 'Resolve Conflicts',
   'set-identity': 'Configure Identity',
   'open-settings': 'Open Repository Settings',
+  'switch-account': 'Switch Account',
 };
+
+/** "Switch to <login>" for errors on a repository that belongs to another added account. */
+function SwitchAccountButton({ target, onSwitched }: { target: { accountId: string; login: string }; onSwitched?: () => void }) {
+  const { setAccounts, refreshSession, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="btn sm primary"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          setAccounts(await call('accounts:setActive', { accountId: target.accountId }));
+          await refreshSession().catch(() => undefined);
+          toast(`Switched to ${target.login}`);
+          onSwitched?.();
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? 'Switching…' : `⇄ Switch to ${target.login}`}
+    </button>
+  );
+}
 
 interface Props {
   error: FriendlyError;
   onAction?: (action: ErrorAction) => void;
   /** Actions this context can actually handle; others are hidden. */
   available?: ErrorAction[];
+  /** Called after the user switched account from a 'switch-account' error. */
+  onSwitched?: () => void;
 }
 
 /** Friendly error with reasons, action buttons and an expandable technical section. */
-export function ErrorPanel({ error, onAction, available }: Props) {
-  const actions = error.actions.filter((a) => !available || available.includes(a));
+export function ErrorPanel({ error, onAction, available, onSwitched }: Props) {
+  const actions = error.actions.filter((a) => a !== 'switch-account' && (!available || available.includes(a)));
   return (
     <div className="error-panel">
       <h3>⚠ {error.title}</h3>
@@ -34,6 +64,11 @@ export function ErrorPanel({ error, onAction, available }: Props) {
             ))}
           </ul>
         </>
+      )}
+      {error.switchAccount && (
+        <div className="row wrap mt">
+          <SwitchAccountButton target={error.switchAccount} onSwitched={onSwitched} />
+        </div>
       )}
       {onAction && actions.length > 0 && (
         <div className="row wrap mt">

@@ -39,7 +39,8 @@ function writeDismissed(repoId: string): void {
 }
 
 export function RepoView() {
-  const { activeRepo, repoTab, setRepoTab, revision, bump, appSetupRepoId, requestAppSetup } = useApp();
+  const { activeRepo, repoTab, setRepoTab, revision, bump, appSetupRepoId, requestAppSetup, activeAccount, setAccounts, refreshSession, toast } = useApp();
+  const otherAccount = activeRepo?.account && activeRepo.account.id !== activeAccount?.id ? activeRepo.account : null;
   const [setupDismissed, setSetupDismissed] = useState(() => readDismissed(activeRepo?.id));
   const [dialog, setDialog] = useState<'fetch' | 'pull' | 'push' | null>(null);
   // Other screens (e.g. the clean Changes screen) can open the sync dialogs.
@@ -141,6 +142,26 @@ export function RepoView() {
         </div>
       ) : (
         <>
+          {otherAccount && (
+            <div className="banner warn" style={{ margin: '10px 18px 0' }}>
+              <span className="icon">⇄</span>
+              <div className="grow">
+                <strong>This repository belongs to {otherAccount.login}.</strong>{' '}
+                {activeAccount ? `You are using ${activeAccount.login}. ` : ''}Switch to {otherAccount.login} to commit, push, pull and use pull requests or Actions here.
+              </div>
+              <button
+                className="btn sm primary"
+                onClick={async () => {
+                  setAccounts(await call('accounts:setActive', { accountId: otherAccount.id }));
+                  await refreshSession().catch(() => undefined);
+                  toast(`Switched to ${otherAccount.login}`);
+                  bump();
+                }}
+              >
+                Switch to {otherAccount.login}
+              </button>
+            </div>
+          )}
           {activeRepo.github && !activeRepo.settings.githubApp && !setupDismissed && (
             <div className="banner info" style={{ margin: '10px 18px 0' }}>
               <span className="icon">🔑</span>

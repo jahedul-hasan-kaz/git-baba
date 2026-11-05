@@ -66,6 +66,16 @@ export function createAccountSignInHandlers(ctx: AppContext, accountsState: () =
           actions: ['review-auth'],
         });
       }
+      // Adding a NEW account: the browser was still signed in to an account that is already added.
+      const existing = !target && !login ? ctx.accounts.list().find((a) => a.login.toLowerCase() === verified.login.toLowerCase() && (a.apiBaseUrl ?? undefined) === apiBase) : undefined;
+      if (existing && existing.method !== 'ssh') {
+        throw new AppError({
+          code: 'account-exists',
+          title: `${verified.login} Is Already Added`,
+          message: `${hostForApiBase(apiBase)} approved the code as ${verified.login}, which is already in Git Baba. To add another account, sign in to it on ${hostForApiBase(apiBase)} first (use GitHub's “Switch account” menu or a private browser window), then try again — or add it with a personal access token.`,
+          actions: ['review-auth'],
+        });
+      }
       const account = ctx.accounts.upsert(verified.login, verified.name, verified.orgs, apiBase, 'browser');
       if (remember) ctx.accountSecrets.save(account.id, token);
       // Start the in-memory session right away so GitHub features work without asking again.

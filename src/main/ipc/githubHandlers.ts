@@ -5,6 +5,7 @@ import type { ApiMap } from '../../shared/api';
 import type { DraftReviewComment, GhRepoContext, MergeAuthOption, PreMergeReport } from '../../shared/github';
 import type { AppContext } from '../context';
 import { isRejectedCredential } from '../accounts/AccountSessions';
+import { assertRepoAccountActive } from '../accounts/repoAccount';
 import { AppError } from '../git/errors';
 import { looksBinary } from '../git/parsers';
 import { parseRemoteUrl } from '../git/remoteUrl';
@@ -192,6 +193,7 @@ export function createGitHubHandlers(ctx: AppContext): HandlerMap {
     if (!parsed?.isGitHub || !parsed.owner || !parsed.repo) {
       throw new AppError({ code: 'not-github', title: 'Not a GitHub Repository', message: `${repo.name} has no GitHub remote. Pull requests, security and actions need a GitHub repository.` });
     }
+    assertRepoAccountActive(ctx.accounts, repo, parsed, 'use its GitHub features');
     const apiBase = repo.settings.apiBaseUrl ?? apiBaseForHost(parsed.host);
     const r: RepoCoords = { owner: parsed.owner, name: parsed.repo };
     const t = await transport(repo, r, apiBase);

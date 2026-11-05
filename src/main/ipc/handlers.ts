@@ -56,6 +56,7 @@ import { asConfirmed, parseAuthInput } from './authInput';
 import { createBranchHandlers, type BranchChannels } from './branchHandlers';
 import { createExtraHandlers, type ExtraChannels } from './extraHandlers';
 import { createHistoryHandlers, type HistoryChannels } from './historyHandlers';
+import { assertRepoAccountActive, repoOwnerAccount } from '../accounts/repoAccount';
 import { createGitHubHandlers, type GitHubChannels } from './githubHandlers';
 
 type Handler<C extends Channel> = (payload: unknown) => Promise<ApiMap[C]['res']>;
@@ -118,12 +119,16 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
    */
   function repoIdentity(repo: RepoRecord, parsed: ReturnType<typeof parseRemoteUrl> | null): Pick<RepoSummary, 'identity' | 'account' | 'ownerLabel'> {
     const identity = parsed?.host && parsed.owner && parsed.repo ? `${parsed.host}/${parsed.owner}/${parsed.repo}` : null;
-    const explicit = repo.settings.accountId ? ctx.accounts.get(repo.settings.accountId) : undefined;
-    const detected = !explicit && parsed?.isGitHub && parsed.owner ? ctx.accounts.matchOwner(parsed.owner)?.account : undefined;
-    const account = explicit ?? detected ?? null;
+    const account = repoOwnerAccount(ctx.accounts, repo, parsed);
     const owner = parsed?.isGitHub ? parsed.owner : null;
     const ownerLabel = owner ? (account && account.login.toLowerCase() === owner.toLowerCase() ? 'personal' : owner) : null;
     return { identity, account: account ? { id: account.id, login: account.login } : null, ownerLabel };
+  }
+
+  /** One account at a time: refuses work on a repository that belongs to another added account. */
+  async function guardAccount(repo: RepoRecord, git: GitService, what: string): Promise<void> {
+    const remote = await primaryRemote(git, null).catch(() => null);
+    assertRepoAccountActive(ctx.accounts, repo, remote ? parseRemoteUrl(remote.url) : null, what);
   }
 
   /** Account context shown in auth dialogs ("Account: jahedul-hasan-kaz"). */
@@ -790,6 +795,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
 
     'commit:prepare': async (payload) => {
       const { repo, git } = ctx.git(asObject(payload).repoId);
+      await guardAccount(repo, git, 'commit');
       return buildCommitPreview(repo, git, 'commit');
     },
 
@@ -798,6 +804,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
       const { repo, git } = ctx.git(p.repoId);
       const message = asString(p.message, 'Commit message', { max: 20_000 });
       const signing = asEnum(p.signing, 'signing', ['none', 'gpg', 'ssh', 'x509'] as const);
+      await guardAccount(repo, git, 'commit');
       return ctx.withLock(repo.id, async () => {
         const review = await verifyCommitReview(repo.id, git, 'commit', p.confirmationId, signing);
         const identity = await git.identity();
@@ -819,6 +826,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
 
     'push:prepare': async (payload) => {
       const { repo, git } = ctx.git(asObject(payload).repoId);
+      await guardAccount(repo, git, 'push');
       const st = await git.status();
       if (st.detached || !st.branch) throw new AppError({ code: 'detached', title: 'Not on a Branch', message: 'Switch to a branch before pushing.' });
       if (st.operation) throw new AppError({ code: 'operation-in-progress', title: `${st.operation} in progress`, message: 'Finish or abort the current operation before pushing.', actions: ['resolve-conflicts'] });
@@ -908,6 +916,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
       const p = asObject(payload);
       const { repo, git } = ctx.git(p.repoId);
       const auth = parseAuthInput(p.auth);
+      await guardAccount(repo, git, 'push');
       return ctx.withLock(repo.id, async () => {
         const review = ctx.confirmations.consume<PushReview>(asId(p.confirmationId, 'confirmationId'), 'push', repo.id);
         const st = await git.status();
@@ -1035,6 +1044,7 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
     'pull:prepare': async (payload) => {
       const p = asObject(payload);
       const { repo, git } = ctx.git(p.repoId);
+      await guardAccount(repo, git, 'pull');
       const auth = parseAuthInput(p.auth);
       let st = await git.status();
       if (st.detached || !st.branch) throw new AppError({ code: 'detached', title: 'Not on a Branch', message: 'Switch to a branch before pulling.' });

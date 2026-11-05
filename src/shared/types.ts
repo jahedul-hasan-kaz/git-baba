@@ -306,7 +306,7 @@ export type AuthInput =
 
 // ---- Friendly errors ----
 
-export type ErrorAction = 'review-auth' | 'retry' | 'pull' | 'resolve-conflicts' | 'set-identity' | 'open-settings';
+export type ErrorAction = 'review-auth' | 'retry' | 'pull' | 'resolve-conflicts' | 'set-identity' | 'open-settings' | 'switch-account';
 
 export interface FriendlyError {
   code: string;
@@ -317,6 +317,8 @@ export interface FriendlyError {
   technical?: string;
   /** Set when a push was rejected by repository rules / protection, with the parsed details. */
   pushRules?: PushRuleReport;
+  /** Set when the repository belongs to another added account (code 'switch-account'). */
+  switchAccount?: { accountId: string; login: string };
 }
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: FriendlyError };

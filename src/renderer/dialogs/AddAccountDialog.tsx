@@ -353,7 +353,8 @@ function BrowserStep({
     scopes: string;
   }) => void;
 }) {
-  const { toast } = useApp();
+  const { toast, accounts } = useApp();
+  const added = new Set((accounts?.accounts ?? []).filter((a) => a.method !== "ssh").map((a) => a.login.toLowerCase()));
   const [cli, setCli] = useState<CliAccountsStatus | null>(null);
   const [code, setCode] = useState<{
     loginId: string;
@@ -435,9 +436,13 @@ function BrowserStep({
       }).catch(() => undefined);
   };
 
-  const usable = (cli?.logins ?? []).filter(
-    (l) => !accountLogin || l.toLowerCase() === accountLogin.toLowerCase(),
+  // Signing in to a known account: only its own CLI login. Adding a new one: CLI logins not added yet.
+  const usable = (cli?.logins ?? []).filter((l) =>
+    accountLogin
+      ? l.toLowerCase() === accountLogin.toLowerCase()
+      : !added.has(l.toLowerCase()),
   );
+  const addingAnother = !accountLogin && added.size > 0;
 
   if (!cli) {
     return (
@@ -497,6 +502,17 @@ function BrowserStep({
               Git Baba.
             </li>
           </ol>
+          {addingAnother && (
+            <div className="banner info small">
+              <span className="icon">ℹ</span>
+              <div>
+                Adding another account? {host} approves the code as whoever is
+                signed in there. Sign in to the other account first — GitHub’s
+                avatar menu → <strong>Switch account</strong>, or open the code page in a
+                private window.
+              </div>
+            </div>
+          )}
           {usable.length > 0 && (
             <div className="ax-cli-quick">
               <div className="small muted">
@@ -554,6 +570,12 @@ function BrowserStep({
               Open {host}/login/device ↗
             </button>
           </div>
+          {addingAnother && (
+            <div className="small muted center">
+              Make sure {host} shows the account you want to add — not one
+              that’s already in Git Baba.
+            </div>
+          )}
           <div className="ax-wait small">
             <span className="spinner" /> Waiting for you to finish on GitHub…
             <button className="btn ghost sm" onClick={cancel}>

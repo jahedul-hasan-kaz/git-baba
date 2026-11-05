@@ -36,12 +36,12 @@ export function GitHubRepoShell({ what, children, extra }: { what: string; child
 
 function Inner({ repoId, children, extra, what }: { repoId: string; children: (ctx: GhRepoContext, repoId: string) => ReactNode; extra?: ReactNode; what: string }) {
   const { session, activeAccount } = useApp();
-  const ctx = useGh(() => call('gh:context', { repoId }), [repoId, session?.active]);
+  const ctx = useGh(() => call('gh:context', { repoId }), [repoId, session?.active, activeAccount?.id]);
   if (ctx.error) {
     if (NEEDS_CONNECT.has(ctx.error.code)) return <ConnectGitHub repoId={repoId} what={what} reason={ctx.error.message} onConnected={() => void ctx.reload()} hasAccount={!!activeAccount} />;
     return (
       <div className="content">
-        <ErrorPanel error={ctx.error} onAction={() => ctx.reload()} available={['retry']} />
+        <ErrorPanel error={ctx.error} onAction={() => ctx.reload()} available={['retry']} onSwitched={() => void ctx.reload()} />
       </div>
     );
   }
