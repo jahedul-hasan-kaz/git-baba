@@ -1,4 +1,4 @@
-import type { DeployKey, GhSecret, RemoteBranch, RemoteCommit, RemoteTag, SecretScope, SecretsOverview } from '../../../shared/github';
+import type { DeployKey, GhSecret, RefCommitInfo, RemoteBranch, RemoteCommit, RemoteTag, SecretScope, SecretsOverview } from '../../../shared/github';
 import { AppError } from '../../git/errors';
 import { encryptSecretForGitHub } from '../../security/sealedBox';
 import type { GitHubClient } from '../client/GitHubClient';
@@ -167,14 +167,33 @@ export async function deleteDeployKey(c: GitHubClient, r: RepoCoords, id: number
 // Branches, tags, commits on GitHub
 // ---------------------------------------------------------------------------
 
+/** Commit date, author and headline of the newest 100 refs under a prefix (best effort: empty on any error). */
+async function refCommits(c: GitHubClient, r: RepoCoords, prefix: 'refs/heads/' | 'refs/tags/'): Promise<Map<string, RefCommitInfo>> {
+  const commit = 'oid committedDate messageHeadline author { name user { login } }';
+  const q = `query($o: String!, $n: String!, $p: String!) { repository(owner: $o, name: $n) { refs(refPrefix: $p, first: 100, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+    nodes { name target { __typename ... on Commit { ${commit} } ... on Tag { target { ... on Commit { ${commit} } } } } } } } }`;
+  const out = new Map<string, RefCommitInfo>();
+  try {
+    const data = await c.graphql<Json>(q, { o: r.owner, n: r.name, p: prefix }, 'read branch dates');
+    for (const n of data?.repository?.refs?.nodes ?? []) {
+      const t = n.target?.__typename === 'Tag' ? n.target.target : n.target;
+      if (!t) continue;
+      out.set(n.name, { date: t.committedDate ?? null, author: t.author?.user?.login ?? t.author?.name ?? null, message: t.messageHeadline ?? null });
+    }
+  } catch {
+    /* dates are optional */
+  }
+  return out;
+}
+
 export async function remoteBranches(c: GitHubClient, r: RepoCoords): Promise<RemoteBranch[]> {
-  const res = await c.paginate<Json>(`${base(r)}/branches`, { maxItems: 500, action: 'list branches' });
-  return res.items.map((b) => ({ name: b.name, sha: b.commit?.sha ?? '', protected: !!b.protected }));
+  const [res, info] = await Promise.all([c.paginate<Json>(`${base(r)}/branches`, { maxItems: 500, action: 'list branches' }), refCommits(c, r, 'refs/heads/')]);
+  return res.items.map((b) => ({ name: b.name, sha: b.commit?.sha ?? '', protected: !!b.protected, ...info.get(b.name) }));
 }
 
 export async function remoteTags(c: GitHubClient, r: RepoCoords): Promise<RemoteTag[]> {
-  const res = await c.paginate<Json>(`${base(r)}/tags`, { maxItems: 500, action: 'list tags' });
-  return res.items.map((t) => ({ name: t.name, sha: t.commit?.sha ?? '' }));
+  const [res, info] = await Promise.all([c.paginate<Json>(`${base(r)}/tags`, { maxItems: 500, action: 'list tags' }), refCommits(c, r, 'refs/tags/')]);
+  return res.items.map((t) => ({ name: t.name, sha: t.commit?.sha ?? '', ...info.get(t.name) }));
 }
 
 export async function remoteCommits(c: GitHubClient, r: RepoCoords, ref: string, page: number): Promise<{ commits: RemoteCommit[]; hasMore: boolean }> {

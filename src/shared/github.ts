@@ -770,13 +770,20 @@ export interface DeployKey {
   addedBy: string | null;
 }
 
-export interface RemoteBranch {
+/** Head commit of a branch or tag (best effort; null when GitHub did not return it). */
+export interface RefCommitInfo {
+  date: string | null;
+  author: string | null;
+  message: string | null;
+}
+
+export interface RemoteBranch extends Partial<RefCommitInfo> {
   name: string;
   sha: string;
   protected: boolean;
 }
 
-export interface RemoteTag {
+export interface RemoteTag extends Partial<RefCommitInfo> {
   name: string;
   sha: string;
 }

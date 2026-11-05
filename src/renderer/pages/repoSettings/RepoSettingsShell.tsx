@@ -9,11 +9,11 @@ import { RepoSettingsPage } from '../RepoSettingsPage';
 import { DangerZone } from './DangerZone';
 import { DeployKeys } from './DeployKeys';
 import { RemoteRefs } from './RemoteRefs';
-import { RepoAppLink } from './RepoAppLink';
 import { RepoSecrets } from './RepoSecrets';
 import { RepoAccess } from './RepoAccess';
+import { RoleCard } from './RoleCard';
 
-type Section = 'general' | 'access' | 'secrets' | 'deploy-keys' | 'refs' | 'app' | 'danger';
+type Section = 'general' | 'access' | 'secrets' | 'deploy-keys' | 'refs' | 'danger';
 
 interface Item {
   id: Section;
@@ -25,12 +25,11 @@ interface Item {
 }
 
 const ITEMS: Item[] = [
-  { id: 'general', icon: '⚙', label: 'General', hint: 'Identity, remotes, safety, local credentials' },
+  { id: 'general', icon: '⚙', label: 'General', hint: 'Who you commit as, remotes, remove' },
   { id: 'access', icon: '🛡', label: 'Security & access', hint: 'Push & merge credential, GitHub App, commit signing' },
   { id: 'secrets', icon: '🔐', label: 'Secrets', hint: 'Actions, Copilot agent, environments, organisation', needs: 'admin' },
   { id: 'deploy-keys', icon: '🔑', label: 'Deploy keys', hint: 'Machine access with SSH', needs: 'admin' },
   { id: 'refs', icon: '⎇', label: 'Branches, tags & commits', hint: 'As they are on GitHub', needs: 'read' },
-  { id: 'app', icon: '🧩', label: 'GitHub App', hint: 'Link an App from your account', needs: 'read' },
   { id: 'danger', icon: '⚠', label: 'Danger zone', hint: 'Delete on GitHub', needs: 'admin' },
 ];
 
@@ -66,7 +65,6 @@ export function RepoSettingsShell() {
 
   const allowed = (i: Item) => !i.needs || (!!ctx && (i.needs === 'read' || ctx.permissions.canAdmin));
   const visible = ITEMS.filter((i) => !i.needs || (repo.github && allowed(i)));
-  const hidden = repo.github && ctx ? ITEMS.filter((i) => i.needs && !allowed(i)) : [];
   const current = visible.some((i) => i.id === section) ? section : 'general';
 
   return (
@@ -90,10 +88,7 @@ export function RepoSettingsShell() {
                 <NavItem key={i.id} item={i} on={current === i.id} onClick={() => setSection(i.id)} />
               ))}
             {ctx && (
-              <div className="role-note">
-                Your role: <strong>{ctx.permissions.level.toLowerCase()}</strong>
-                {hidden.length > 0 && <div className="small muted">{hidden.map((h) => h.label).join(', ')} need admin access.</div>}
-              </div>
+              <RoleCard ctx={ctx} />
             )}
             {ctxError && !ctx && <div className="role-note small muted">Sign in to manage GitHub settings.</div>}
           </>
@@ -101,13 +96,12 @@ export function RepoSettingsShell() {
       </nav>
       <div className="settings-body">
         <h2 style={{ marginTop: 0 }}>{ITEMS.find((i) => i.id === current)!.label}</h2>
-        {current === 'general' && <RepoSettingsPage />}
-        {current === 'access' && <RepoAccess onOpenApps={ctx ? () => setSection('app') : undefined} />}
-        {current !== 'general' && ctxError && !ctx && <ErrorPanel error={ctxError} />}
+        {current === 'general' && <RepoSettingsPage onManageAccess={() => setSection('access')} />}
+        {current === 'access' && <RepoAccess appsAvailable={!!ctx} />}
+        {ITEMS.find((i) => i.id === current)?.needs && ctxError && !ctx && <ErrorPanel error={ctxError} />}
         {ctx && current === 'secrets' && <RepoSecrets repoId={repo.id} ctx={ctx} />}
         {ctx && current === 'deploy-keys' && <DeployKeys repoId={repo.id} />}
         {ctx && current === 'refs' && <RemoteRefs repoId={repo.id} ctx={ctx} />}
-        {ctx && current === 'app' && <RepoAppLink repoId={repo.id} />}
         {ctx && current === 'danger' && <DangerZone repoId={repo.id} ctx={ctx} />}
       </div>
     </div>

@@ -1,215 +1,175 @@
-import { useEffect, useState } from 'react';
-import type { RepoSettingsPatch } from '../../shared/api';
+import { useState } from 'react';
 import type { RemoteInfo } from '../../shared/types';
 import { ConfirmDialog } from '../dialogs/ConfirmDialog';
 import { RemoteChangeDialog } from '../dialogs/RemoteChangeDialog';
 import { useAsync } from '../hooks/useAsync';
 import { call } from '../services/api';
 import { useApp } from '../state/AppState';
+import { REMOTE_LABEL, SIGN_LABEL, SOURCE_TEXT } from './repoSettings/RepoAccess';
 
-import { Select } from '../components/Select';
-export function RepoSettingsPage() {
-  const { activeRepo, revision, bump, showError, toast, selectRepo, info, accounts } = useApp();
+/**
+ * General: an at-a-glance, read-only view of who this repository commits and pushes as, with the remotes
+ * (origin changes are checked before they are saved) and removing the repository from the app.
+ * Credentials, the GitHub App and signing are chosen under Security & access.
+ */
+export function RepoSettingsPage({ onManageAccess }: { onManageAccess?: () => void }) {
+  const { activeRepo, revision, bump, showError, toast, selectRepo } = useApp();
   const repo = activeRepo!;
   const repoId = repo.id;
   const identity = useAsync(() => (repo.exists ? call('git:identity', { repoId }) : Promise.resolve(null)), [repoId, revision]);
   const remotes = useAsync(() => (repo.exists ? call('git:remotes', { repoId }) : Promise.resolve([] as RemoteInfo[])), [repoId, revision]);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const access = useAsync(() => (repo.exists ? call('repo:accessOverview', { repoId }) : Promise.resolve(null)), [repoId, revision]);
   const [remoteName, setRemoteName] = useState('origin');
   const [remoteUrl, setRemoteUrl] = useState('');
-  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [editing, setEditing] = useState(false);
   const [pendingRemote, setPendingRemote] = useState<{ name: string; url: string } | null>(null);
   const [confirm, setConfirm] = useState<'remove-repo' | { remote: string } | null>(null);
 
-  useEffect(() => {
-    setName(identity.data?.name ?? '');
-    setEmail(identity.data?.email ?? '');
-  }, [identity.data]);
-  useEffect(() => {
-    setApiBaseUrl(repo.settings.apiBaseUrl ?? '');
-  }, [repo.settings]);
+  const copy = (text: string, what: string) =>
+    call('app:copyText', { text })
+      .then(() => toast(`${what} copied`))
+      .catch(showError);
 
-  const act = async (fn: () => Promise<unknown>, success: string) => {
-    try {
-      await fn();
-      toast(success);
-    } catch (err) {
-      showError(err);
-    }
-    bump();
-  };
-
-  const update = (settings: RepoSettingsPatch, msg = 'Settings saved') =>
-    act(() => call('repo:updateSettings', { repoId, settings }), msg);
+  const id = identity.data;
+  const a = access.data;
+  const app = repo.settings.githubApp;
 
   return (
-    <div className="page">
+    <div className="page general">
       {repo.exists && (
         <>
+          {/* Who you are here */}
+          <div className="gen-hero">
+            <div className="gen-person">
+              <span className="gen-avatar">{(id?.name ?? '?')[0]?.toUpperCase()}</span>
+              <div className="grow" style={{ minWidth: 0 }}>
+                <div className="gen-k">Commits as</div>
+                <div className="gen-name">{id?.name ?? <span className="muted">No user.name</span>}</div>
+                <button className="gen-mail" onClick={() => id?.email && void copy(id.email, 'Email')} disabled={!id?.email} title="Copy email">
+                  {id?.email ?? 'No user.email'} {id?.email && <span className="muted">⧉</span>}
+                </button>
+              </div>
+            </div>
+            <div className="gen-facts">
+              <Fact k="GitHub account" v={repo.account?.login ?? 'Not linked to an account'} hint={repo.settings.accountId ? 'chosen' : repo.account ? 'detected from the remote' : undefined} />
+              <Fact k="Repository" v={repo.identity ?? 'Local only'} />
+              <Fact k="Folder" v={repo.path} mono onClick={() => void copy(repo.path, 'Folder path')} />
+            </div>
+          </div>
+          {(!id?.name || !id?.email) && (
+            <div className="banner warn small">
+              <span className="icon">⚠</span>
+              <div>
+                Git has no {!id?.name && 'user.name'}
+                {!id?.name && !id?.email && ' or '}
+                {!id?.email && 'user.email'} for this repository. Set it with <code>git config user.name / user.email</code>, or commit as your GitHub account from the commit dialog.
+              </div>
+            </div>
+          )}
+
+          {/* Security & access, read-only */}
           <div className="card">
-            <h3>GitHub account</h3>
-            <p className="small muted">The app-level account used for this repository's GitHub operations (pull requests, token checks). It does not change the repository's remote or Git credentials.</p>
             <div className="row mb">
-              <Select kind="account"
-                value={repo.settings.accountId ?? ''}
-                onChange={(e) => act(() => call('repo:setAccount', { repoId, accountId: e.target.value || null }), 'Repository account updated')}
-                style={{ maxWidth: 360 }}
-              >
-                <option value="">{repo.account && !repo.settings.accountId ? `Detected: ${repo.account.login}` : 'None'}</option>
-                {accounts?.accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.login}
-                  </option>
-                ))}
-              </Select>
-              <span className="small muted">{repo.identity ?? 'no GitHub remote'}</span>
+              <h3 className="grow" style={{ margin: 0 }}>
+                Security &amp; access
+              </h3>
+              {onManageAccess && (
+                <button className="btn sm" onClick={onManageAccess}>
+                  Manage →
+                </button>
+              )}
             </div>
-          </div>
-
-          <div className="card">
-            <h3>Git identity (this repository)</h3>
-            <div className="grid-2">
-              <div className="field">
-                <label>Name (user.name)</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Email (user.email)</label>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-            </div>
-            <div className="row">
-              <span className="small muted grow">
-                Signing: {identity.data?.signingKey ? `${identity.data.gpgFormat ?? 'openpgp'} key configured` : 'not configured'}
-                {identity.data?.commitGpgSign ? ' · commit.gpgsign=true' : ''}
-              </span>
-              <button className="btn" disabled={!name || !email} onClick={() => act(() => call('git:setIdentity', { repoId, name, email }), 'Identity saved')}>
-                Save identity
-              </button>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3>Remotes</h3>
-            <table className="list mb">
-              <tbody>
-                {(remotes.data ?? []).map((r) => (
-                  <tr key={r.name}>
-                    <td>
-                      <strong>{r.name}</strong>
-                    </td>
-                    <td className="mono small">{r.pushUrl}</td>
-                    <td>
-                      <span className="badge">{r.protocol}</span> {r.isGitHub && <span className="badge info">GitHub</span>}
-                      {r.hasEmbeddedCredentials && <span className="badge danger">credentials in URL!</span>}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn sm"
-                        onClick={() => {
-                          setRemoteName(r.name);
-                          setRemoteUrl(r.pushUrl.includes('[REDACTED]') ? '' : r.pushUrl);
-                        }}
-                      >
-                        Edit
-                      </button>{' '}
-                      <button className="btn sm danger" onClick={() => setConfirm({ remote: r.name })}>
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {remotes.data?.some((r) => r.hasEmbeddedCredentials) && (
-              <div className="banner danger small">
-                <span className="icon">⚠</span>
-                <div>A remote URL contains embedded credentials, stored in plain text in .git/config. Replace it with a URL without credentials.</div>
+            {!a ? (
+              <div className="small muted">Reading your setup…</div>
+            ) : (
+              <div className="gen-access">
+                <AccessTile icon="⇅" k="Push · pull · merge" v={a.effective.remote.method ? REMOTE_LABEL[a.effective.remote.method] : 'No method available'} s={SOURCE_TEXT[a.effective.remote.source]} onClick={onManageAccess} />
+                <AccessTile icon="🤖" k="GitHub App" v={app ? `App ${app.appId}` : 'Not linked'} s={app ? `${app.owner}/${app.repo}` : repo.github ? 'link one under Security & access' : 'not a GitHub repository'} on={!!app} onClick={onManageAccess} />
+                <AccessTile icon="✎" k="Commit signing" v={SIGN_LABEL[a.effective.commit.method]} s={SOURCE_TEXT[a.effective.commit.source]} on={a.effective.commit.method !== 'none'} onClick={onManageAccess} />
+                <AccessTile
+                  icon="🔑"
+                  k="Saved here"
+                  v={[a.detected.sshKeyPath && 'SSH key', a.detected.patSaved && 'Token', a.detected.githubAppKeySaved && 'App key'].filter(Boolean).join(' · ') || 'Nothing saved'}
+                  s={a.detected.credentialHelper ? `git uses ${a.detected.credentialHelper}` : 'no credential helper'}
+                  onClick={onManageAccess}
+                />
               </div>
             )}
-            <div className="row">
-              <input style={{ width: 140 }} value={remoteName} onChange={(e) => setRemoteName(e.target.value)} placeholder="origin" />
-              <input value={remoteUrl} onChange={(e) => setRemoteUrl(e.target.value)} placeholder="https://github.com/owner/repo.git" spellCheck={false} />
-              <button className="btn primary" disabled={!remoteName.trim() || !remoteUrl.trim()} onClick={() => setPendingRemote({ name: remoteName.trim(), url: remoteUrl.trim() })}>
-                {(remotes.data ?? []).some((r) => r.name === remoteName.trim()) ? `Check & change ${remoteName.trim()}` : 'Check & add'}
-              </button>
+          </div>
+
+          {/* Remotes */}
+          <div className="card">
+            <div className="row mb">
+              <h3 className="grow" style={{ margin: 0 }}>
+                Remotes
+              </h3>
+              {!editing && (
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setEditing(true);
+                    setRemoteName((remotes.data ?? []).some((r) => r.name === 'origin') ? 'upstream' : 'origin');
+                    setRemoteUrl('');
+                  }}
+                >
+                  + Add remote
+                </button>
+              )}
             </div>
+            <div className="gen-remotes">
+              {(remotes.data ?? []).map((r) => (
+                <div key={r.name} className="gen-remote">
+                  <span className="gen-remote-ico">{r.isGitHub ? '🐙' : '☁'}</span>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div className="row" style={{ gap: 6 }}>
+                      <strong>{r.name}</strong>
+                      <span className="badge">{r.protocol}</span>
+                      {r.hasEmbeddedCredentials && <span className="badge danger">credentials in URL!</span>}
+                    </div>
+                    <div className="mono small muted ellipsis" title={r.pushUrl}>
+                      {r.pushUrl}
+                    </div>
+                  </div>
+                  <button
+                    className="btn sm"
+                    onClick={() => {
+                      setEditing(true);
+                      setRemoteName(r.name);
+                      setRemoteUrl(r.pushUrl.includes('[REDACTED]') ? '' : r.pushUrl);
+                    }}
+                  >
+                    Change
+                  </button>
+                  <button className="btn sm ghost danger-text" onClick={() => setConfirm({ remote: r.name })} title={`Remove ${r.name}`}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+              {remotes.data?.length === 0 && <div className="empty small">No remotes yet. Add one to push and pull.</div>}
+            </div>
+            {editing && (
+              <div className="gen-remote-edit">
+                <input style={{ width: 130 }} value={remoteName} onChange={(e) => setRemoteName(e.target.value)} placeholder="origin" spellCheck={false} />
+                <input className="grow" value={remoteUrl} onChange={(e) => setRemoteUrl(e.target.value)} placeholder="https://github.com/owner/repo.git or git@github.com:owner/repo.git" spellCheck={false} autoFocus />
+                <button className="btn primary" disabled={!remoteName.trim() || !remoteUrl.trim()} onClick={() => setPendingRemote({ name: remoteName.trim(), url: remoteUrl.trim() })}>
+                  {(remotes.data ?? []).some((r) => r.name === remoteName.trim()) ? `Check & change ${remoteName.trim()}` : 'Check & add'}
+                </button>
+                <button className="btn ghost" onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
 
-      <div className="card">
-        <h3>Safety settings</h3>
-        <label className="check">
-          <input type="checkbox" checked={repo.settings.runHooks} onChange={(e) => update({ runHooks: e.target.checked })} />
-          <div>
-            <strong>Run repository Git hooks</strong>
-            <div className="small muted">Off by default. Hooks (pre-commit, pre-push, post-checkout…) are scripts from the repository and run with your permissions.</div>
-          </div>
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={repo.settings.allowSavedCredentials}
-            disabled={!info?.encryptionAvailable}
-            onChange={(e) => update({ allowSavedCredentials: e.target.checked }, e.target.checked ? 'Saved credentials enabled' : 'Saved credentials disabled and deleted')}
-          />
-          <div>
-            <strong>Allow saving credentials for this repository</strong>
-            <div className="small muted">
-              {info?.encryptionAvailable
-                ? 'Tokens/keys are only saved when you tick "save" in an auth dialog, encrypted with your OS keychain, isolated to this repository, and still require confirmation for every operation. Turning this off deletes them.'
-                : 'Unavailable: no OS-level encryption (keychain) was found on this system.'}
-            </div>
-          </div>
-        </label>
-        <div className="row mt">
-          <span className="small grow">
-            Saved now: PAT {repo.savedSecrets.pat ? '✅' : '—'} · GitHub App key {repo.savedSecrets.githubAppKey ? '✅' : '—'}
-          </span>
-          <button className="btn sm danger" disabled={!repo.savedSecrets.pat && !repo.savedSecrets.githubAppKey} onClick={() => act(() => call('repo:forgetSecrets', { repoId }), 'Saved credentials deleted')}>
-            Forget saved credentials
-          </button>
+      <div className="gen-remove">
+        <div className="grow">
+          <strong>Remove from Git Baba</strong>
+          <div className="small muted">Takes {repo.name} off the sidebar and deletes credentials saved for it. Your files and history stay on disk.</div>
         </div>
-      </div>
-
-      <div className="card">
-        <h3>GitHub Enterprise</h3>
-        <p className="small muted">The push / merge credential, GitHub App link and commit signing are under Security &amp; access.</p>
-        <div className="field">
-          <label>GitHub Enterprise API URL (optional)</label>
-          <div className="row">
-            <input value={apiBaseUrl} onChange={(e) => setApiBaseUrl(e.target.value)} placeholder="https://github.example.com/api/v3" />
-            <button className="btn" onClick={() => update({ apiBaseUrl: apiBaseUrl || null })}>
-              Save
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3>SSH key</h3>
-        {repo.settings.sshKeyPath ? (
-          <div className="row">
-            <span className="grow small">
-              Remembered key file: <span className="mono">{repo.settings.sshKeyPath}</span>
-              <div className="muted">Only the path is stored. The passphrase is asked for every operation.</div>
-            </span>
-            <button className="btn sm" onClick={() => update({ sshKeyPath: null }, 'SSH key path forgotten')}>
-              Forget
-            </button>
-          </div>
-        ) : (
-          <p className="small muted">No SSH key remembered. In a push or fetch dialog choose SSH, provide your public key, and tick “Remember this key”.</p>
-        )}
-      </div>
-
-      <div className="card" style={{ borderColor: 'rgba(255,107,107,0.4)' }}>
-        <h3>Remove from Git Baba</h3>
-        <p className="small muted">Removes the repository from the app and deletes credentials saved for it. Files on disk are not touched.</p>
         <button className="btn danger" onClick={() => setConfirm('remove-repo')}>
-          Remove repository from app…
+          Remove…
         </button>
       </div>
 
@@ -221,6 +181,7 @@ export function RepoSettingsPage() {
           onClose={() => setPendingRemote(null)}
           onSaved={() => {
             setPendingRemote(null);
+            setEditing(false);
             setRemoteUrl('');
             bump();
           }}
@@ -262,11 +223,42 @@ export function RepoSettingsPage() {
           confirmLabel="Remove remote"
           onCancel={() => setConfirm(null)}
           onConfirm={async () => {
-            await act(() => call('git:removeRemote', { repoId, name: confirm.remote, confirmed: true }), `Remote ${confirm.remote} removed`);
+            try {
+              await call('git:removeRemote', { repoId, name: confirm.remote, confirmed: true });
+              toast(`Remote ${confirm.remote} removed`);
+            } catch (err) {
+              showError(err);
+            }
             setConfirm(null);
+            bump();
           }}
         />
       )}
     </div>
+  );
+}
+
+function Fact({ k, v, hint, mono, onClick }: { k: string; v: string; hint?: string; mono?: boolean; onClick?: () => void }) {
+  return (
+    <div className={`gen-fact ${onClick ? 'clickable' : ''}`} onClick={onClick} title={onClick ? 'Click to copy' : undefined}>
+      <div className="gen-k">{k}</div>
+      <div className={`gen-v ellipsis ${mono ? 'mono' : ''}`} title={v}>
+        {v}
+      </div>
+      {hint && <div className="gen-hint">{hint}</div>}
+    </div>
+  );
+}
+
+function AccessTile({ icon, k, v, s, on, onClick }: { icon: string; k: string; v: string; s: string; on?: boolean; onClick?: () => void }) {
+  return (
+    <button type="button" className={`gen-tile ${on ? 'on' : ''}`} onClick={onClick} disabled={!onClick}>
+      <span className="gen-tile-ico">{icon}</span>
+      <span className="grow" style={{ minWidth: 0 }}>
+        <span className="gen-k">{k}</span>
+        <span className="gen-tile-v ellipsis">{v}</span>
+        <span className="gen-hint ellipsis">{s}</span>
+      </span>
+    </button>
   );
 }

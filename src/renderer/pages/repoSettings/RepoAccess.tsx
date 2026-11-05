@@ -5,6 +5,7 @@ import type { RepoSettingsPatch } from '../../../shared/api';
 import { ErrorPanel } from '../../components/ErrorPanel';
 import { Skeleton } from '../../components/github/common';
 import { useAsync } from '../../hooks/useAsync';
+import { RepoAppLink } from './RepoAppLink';
 import { call } from '../../services/api';
 import { useApp } from '../../state/AppState';
 
@@ -18,9 +19,9 @@ interface Fact {
   origin?: Origin;
 }
 
-const REMOTE_LABEL: Record<AuthMethod, string> = { ssh: 'SSH key', pat: 'Personal access token', system: 'Git identity (unsigned)', 'github-app': 'GitHub App', none: 'None' };
-const SIGN_LABEL: Record<SigningMethod, string> = { none: 'Unsigned (Git identity)', gpg: 'GPG signed', ssh: 'SSH signed', x509: 'X.509 signed' };
-const SOURCE_TEXT: Record<DefaultSource, string> = {
+export const REMOTE_LABEL: Record<AuthMethod, string> = { ssh: 'SSH key', pat: 'Personal access token', system: 'Git identity (unsigned)', 'github-app': 'GitHub App', none: 'None' };
+export const SIGN_LABEL: Record<SigningMethod, string> = { none: 'Unsigned (Git identity)', gpg: 'GPG signed', ssh: 'SSH signed', x509: 'X.509 signed' };
+export const SOURCE_TEXT: Record<DefaultSource, string> = {
   'github-app': 'GitHub App linked — it takes priority',
   'repo-setting': 'chosen here',
   remembered: 'already set up for this repository',
@@ -33,11 +34,12 @@ const SOURCE_TEXT: Record<DefaultSource, string> = {
  * Nothing is created here — the page chooses between what exists and shows where each piece was set up
  * (Git Baba, git config or the system), so the dialogs can preselect it.
  */
-export function RepoAccess({ onOpenApps }: { onOpenApps?: () => void }) {
+export function RepoAccess({ appsAvailable }: { appsAvailable: boolean }) {
   const { activeRepo, revision, bump, showError, toast, activeAccount, session, requestAppSetup } = useApp();
   const repo = activeRepo!;
   const overview = useAsync(() => call('repo:accessOverview', { repoId: repo.id }), [repo.id, revision]);
   const [saving, setSaving] = useState<string | null>(null);
+  const [showApps, setShowApps] = useState(false);
 
   const update = async (key: string, settings: RepoSettingsPatch, msg: string) => {
     setSaving(key);
@@ -61,8 +63,6 @@ export function RepoAccess({ onOpenApps }: { onOpenApps?: () => void }) {
 
   return (
     <div className="access">
-      <FlowSummary o={o} appLinked={!!app} />
-
       {/* ---------------- push, pull & merge ---------------- */}
       <section className="access-section">
         <header className="access-head">
@@ -137,7 +137,7 @@ export function RepoAccess({ onOpenApps }: { onOpenApps?: () => void }) {
             label={app ? 'Linked' : 'Not linked'}
             onChange={(next) => {
               if (!next) void update('app', { githubApp: null }, 'GitHub App unlinked');
-              else if (onOpenApps) onOpenApps();
+              else if (appsAvailable) setShowApps(true);
               else requestAppSetup(repo.id);
             }}
           />
@@ -163,9 +163,9 @@ export function RepoAccess({ onOpenApps }: { onOpenApps?: () => void }) {
             </div>
             {repo.github && (
               <>
-                {onOpenApps && (
-                  <button className="btn sm primary" onClick={onOpenApps}>
-                    Choose from your Apps
+                {appsAvailable && (
+                  <button className="btn sm primary" onClick={() => setShowApps((v) => !v)}>
+                    {showApps ? 'Hide your Apps' : 'Choose from your Apps'}
                   </button>
                 )}
                 <button className="btn sm" onClick={() => requestAppSetup(repo.id)}>
@@ -173,6 +173,11 @@ export function RepoAccess({ onOpenApps }: { onOpenApps?: () => void }) {
                 </button>
               </>
             )}
+          </div>
+        )}
+        {appsAvailable && (showApps || !!app?.registryId) && (
+          <div className="mt">
+            <RepoAppLink repoId={repo.id} />
           </div>
         )}
       </section>
@@ -220,42 +225,6 @@ export function RepoAccess({ onOpenApps }: { onOpenApps?: () => void }) {
           />
         </div>
       </section>
-    </div>
-  );
-}
-
-/** "Commit → … · Push / pull / merge → …": what the next operations will use, at a glance. */
-function FlowSummary({ o, appLinked }: { o: RepoAccessOverview; appLinked: boolean }) {
-  const r = o.effective.remote;
-  const c = o.effective.commit;
-  return (
-    <div className="access-flow">
-      <div className="flow-step">
-        <span className="flow-ico">✎</span>
-        <div>
-          <div className="flow-k">Commit</div>
-          <div className="flow-v">{SIGN_LABEL[c.method]}</div>
-          <div className="flow-s">{SOURCE_TEXT[c.source]}</div>
-        </div>
-      </div>
-      <span className="flow-arrow">→</span>
-      <div className="flow-step">
-        <span className="flow-ico">⇅</span>
-        <div>
-          <div className="flow-k">Push · pull · merge</div>
-          <div className="flow-v">{r.method ? REMOTE_LABEL[r.method] : 'No method available'}</div>
-          <div className="flow-s">{appLinked && r.method === 'github-app' ? SOURCE_TEXT['github-app'] : SOURCE_TEXT[r.source]}</div>
-        </div>
-      </div>
-      <span className="flow-arrow">→</span>
-      <div className="flow-step">
-        <span className="flow-ico">☁</span>
-        <div>
-          <div className="flow-k">{o.remote?.name ?? 'Remote'}</div>
-          <div className="flow-v mono">{o.remote ? (o.remote.owner ? `${o.remote.owner}/${o.remote.repo}` : o.remote.url) : 'No remote yet'}</div>
-          <div className="flow-s">{o.remote ? `${o.remote.protocol.toUpperCase()}${o.remote.host ? ` · ${o.remote.host}` : ''}` : 'Add one under General'}</div>
-        </div>
-      </div>
     </div>
   );
 }
