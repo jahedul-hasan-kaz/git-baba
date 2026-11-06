@@ -3781,3 +3781,22 @@ button.cd-tile:hover { border-color: var(--accent); background: rgba(91, 140, 25
 .rail-wt { position: absolute; bottom: -3px; right: -3px; font-size: 10px; filter: drop-shadow(0 0 2px var(--bg-2)); }
 .deck-chip.wt-of { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
 .deck-chip.wt-of:hover { background: color-mix(in srgb, var(--accent) 12%, var(--bg-3)); }
+
+/* ---------------- Sidebar: many worktrees ---------------- */
+.repo-fam.open:not(.here) { background: transparent; }
+button.repo-wt-count { position: relative; display: inline-flex; align-items: center; gap: 3px; border: 1px solid transparent; font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: background 0.12s, border-color 0.12s, color 0.12s; }
+button.repo-wt-count:hover:not(.locked), button.repo-wt-count.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.repo-wt-count.locked { cursor: default; }
+.repo-wt-chev { font-size: 8px; opacity: 0.7; transition: transform 0.15s; }
+.repo-wt-chev.open { transform: rotate(90deg); }
+.repo-wt-dirty { position: absolute; top: -2px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg-2); }
+.repo-wt.gone { opacity: 0.6; }
+.wtw-name { display: block; min-width: 0; }
+.wtw-prefix { opacity: 0.55; }
+.wtw-leaf { color: inherit; font-weight: 600; }
+.wtw-name mark { background: color-mix(in srgb, var(--warn) 35%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+.wtw-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 1px 0 0 0; padding: 2px 8px; border-radius: 999px; border: 1px dashed var(--border-2); background: transparent; color: var(--text-2); font: inherit; font-size: 11px; cursor: pointer; }
+.wtw-more:hover { color: var(--accent); border-color: var(--accent); }
+.wtw-more-dirty { color: var(--warn); font-size: 10.5px; }
+.wtw-filter { height: 26px; font-size: 11.5px; padding: 3px 8px; margin-bottom: 3px; }
+.wtw-none { font-size: 11px; color: var(--text-3); padding: 3px 8px; }

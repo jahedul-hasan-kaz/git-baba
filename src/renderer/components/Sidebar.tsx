@@ -5,6 +5,7 @@ import { CreateRepoWizard } from '../dialogs/CreateRepoWizard';
 import { ContributorsDialog, DuplicateRepoDialog, hueOf, LastCommitDialog, RemoveRepoDialog } from '../dialogs/RepoActionDialogs';
 import { call } from '../services/api';
 import { useApp } from '../state/AppState';
+import { WorktreeTwig } from './WorktreeTwig';
 
 /** "jahedul-hasan-kaz, inride" / "jahedul-hasan-kaz, personal" / "local repository". */
 export function repoSubtitle(r: RepoSummary): string {
@@ -66,6 +67,8 @@ function loadCollapsed(): Set<string> {
   }
 }
 
+const WT_OPEN_KEY = 'gitbaba.sidebar.worktreesOpen';
+
 type RepoDialog = { kind: 'duplicate' | 'contributors' | 'lastCommit' | 'remove'; repo: RepoSummary };
 
 /** Repositories grouped by owner (favourites pinned on top), with a right-click menu of repository actions. */
@@ -74,6 +77,26 @@ export function Sidebar() {
   const [dialog, setDialog] = useState<'create' | 'clone' | null>(null);
   const [menu, setMenu] = useState(false);
   const [query, setQuery] = useState('');
+  // Repositories whose worktree list the user unfolded by hand (it also unfolds while one of them is open).
+  const [wtOpen, setWtOpen] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(WT_OPEN_KEY) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleWt = (id: string) =>
+    setWtOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(WT_OPEN_KEY, JSON.stringify([...next]));
+      } catch {
+        // Per-viewer convenience only.
+      }
+      return next;
+    });
   const [ctxMenu, setCtxMenu] = useState<{ repo: RepoSummary; x: number; y: number } | null>(null);
   const [repoDialog, setRepoDialog] = useState<RepoDialog | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -361,8 +384,12 @@ export function Sidebar() {
                     const wts = worktreesOf.get(r.id) ?? [];
                     const family = activeFamily === r.id && view === 'repo';
                     const inWorktree = family && r.id !== activeRepoId;
+                    const q = query.trim().toLowerCase();
+                    const wtHit = !!q && wts.some((w) => `${w.branch ?? ''} ${w.name}`.toLowerCase().includes(q));
+                    const unfolded = wts.length > 0 && (family || wtOpen.has(r.id) || wtHit);
+                    const dirty = wts.reduce((n, w) => n + (w.changeCount > 0 ? 1 : 0), 0);
                     return (
-                    <div key={r.id} className={`repo-fam ${family && wts.length ? 'open' : ''}`}>
+                    <div key={r.id} className={`repo-fam ${unfolded ? 'open' : ''} ${family ? 'here' : ''}`}>
                     <div
                       className={`repo-item ${family && !inWorktree ? 'active' : ''} ${inWorktree ? 'family' : ''} ${ctxMenu?.repo.id === r.id ? 'ctx' : ''}`}
                       style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
@@ -379,10 +406,20 @@ export function Sidebar() {
                         {r.hasConflicts && <span className="dot danger" title="Merge conflicts" />}
                         {!r.exists && <span className="dot danger" title="Folder missing" />}
                         {r.favorite && <span className="repo-star" title="Favorite">★</span>}
-                        {wts.length > 0 && !family && (
-                          <span className="repo-wt-count" title={`${wts.length} worktree(s) open in Git Baba:\n${wts.map((w) => `⎇ ${w.branch ?? w.name}`).join('\n')}`}>
+                        {wts.length > 0 && (
+                          <button
+                            className={`repo-wt-count ${unfolded ? 'on' : ''} ${family ? 'locked' : ''}`}
+                            aria-expanded={unfolded}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!family) toggleWt(r.id);
+                            }}
+                            title={family ? `${wts.length} worktree(s) open in Git Baba` : `${unfolded ? 'Hide' : 'Show'} ${wts.length} worktree(s)${dirty ? ` — ${dirty} with uncommitted changes` : ''}`}
+                          >
                             🗂 {wts.length}
-                          </span>
+                            {dirty > 0 && !unfolded && <span className="repo-wt-dirty" />}
+                            {!family && <span className={`repo-wt-chev ${unfolded ? 'open' : ''}`}>▸</span>}
+                          </button>
                         )}
                       </div>
                       <div className="meta">
@@ -390,26 +427,15 @@ export function Sidebar() {
                         {repoSubtitle(r)}
                       </div>
                     </div>
-                    {family && wts.length > 0 && (
-                      <div className="repo-wts">
-                        {wts.map((w) => (
-                          <div
-                            key={w.id}
-                            className={`repo-wt ${w.id === activeRepoId ? 'active' : ''} ${ctxMenu?.repo.id === w.id ? 'ctx' : ''}`}
-                            onClick={() => selectRepo(w.id)}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setCtxMenu({ repo: w, x: e.clientX, y: e.clientY });
-                            }}
-                            title={`Worktree of ${r.name}\n${w.path}`}
-                          >
-                            <span className="repo-wt-ico">🗂</span>
-                            <span className="ellipsis grow">{w.branch ?? w.name}</span>
-                            {w.changeCount > 0 && <span className="repo-changes" title={`${w.changeCount} uncommitted change(s)`}>{w.changeCount}</span>}
-                            {!w.exists && <span className="dot danger" title="Folder missing" />}
-                          </div>
-                        ))}
-                      </div>
+                    {unfolded && (
+                      <WorktreeTwig
+                        parent={r}
+                        worktrees={wts}
+                        activeRepoId={view === 'repo' ? activeRepoId : null}
+                        query={wtHit ? query : ''}
+                        onSelect={selectRepo}
+                        onContext={(repo, x, y) => setCtxMenu({ repo, x, y })}
+                      />
                     )}
                     </div>
                     );
