@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseWorktreeList, Worktrees } from '../src/main/git/worktrees';
+import { mainWorktreeOf, parseWorktreeList, Worktrees } from '../src/main/git/worktrees';
 
 describe('parseWorktreeList', () => {
   it('reads branches, detached heads, locks and prunable entries', () => {
@@ -79,6 +79,15 @@ describe('Worktrees (real git)', () => {
     fs.writeFileSync(path.join(busy, 'x'), 'x');
     await expect(trees.add(busy, { branch: 'side', create: false })).rejects.toThrow(/not empty/);
     await expect(trees.get(base)).rejects.toThrow(/not a worktree/);
+  });
+
+  it('finds the main folder of a linked worktree', async () => {
+    const { base, repo, trees } = setup();
+    const dir = path.join(base, 'repo-side');
+    await trees.add(dir, { branch: 'side', create: false });
+    expect(path.resolve(mainWorktreeOf(dir) ?? '').toLowerCase()).toBe(path.resolve(repo).toLowerCase());
+    expect(mainWorktreeOf(repo)).toBeNull();
+    expect(mainWorktreeOf(base)).toBeNull();
   });
 
   it('cleans up worktrees whose folder is gone', async () => {

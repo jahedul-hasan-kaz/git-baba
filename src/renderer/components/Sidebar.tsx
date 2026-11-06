@@ -78,6 +78,22 @@ export function Sidebar() {
   const [repoDialog, setRepoDialog] = useState<RepoDialog | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Worktrees opened in the app fold under their main repository instead of being listed as repositories.
+  const { mainRepos, worktreesOf } = useMemo(() => {
+    const ids = new Set(repos.map((r) => r.id));
+    const kids = new Map<string, RepoSummary[]>();
+    const main: RepoSummary[] = [];
+    for (const r of repos) {
+      if (r.worktreeOf && ids.has(r.worktreeOf)) kids.set(r.worktreeOf, [...(kids.get(r.worktreeOf) ?? []), r]);
+      else main.push(r);
+    }
+    for (const list of kids.values()) list.sort((a, b) => (a.branch ?? a.name).localeCompare(b.branch ?? b.name));
+    return { mainRepos: main, worktreesOf: kids };
+  }, [repos]);
+  const activeFamily = useMemo(() => {
+    const a = repos.find((r) => r.id === activeRepoId);
+    return a?.worktreeOf && worktreesOf.has(a.worktreeOf) ? a.worktreeOf : (a?.id ?? null);
+  }, [repos, activeRepoId, worktreesOf]);
   const ctxRef = useRef<HTMLDivElement>(null);
   // Minimised to an icon rail (one avatar per repository); remembered between sessions.
   const [rail, setRail] = useState(loadRail);
@@ -156,9 +172,10 @@ export function Sidebar() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = [...repos].sort((a, b) => a.name.localeCompare(b.name));
-    return q ? list.filter((r) => `${r.name} ${repoSubtitle(r)} ${r.identity ?? ''}`.toLowerCase().includes(q)) : list;
-  }, [repos, query]);
+    const list = [...mainRepos].sort((a, b) => a.name.localeCompare(b.name));
+    const text = (r: RepoSummary) => [r.name, repoSubtitle(r), r.identity ?? '', ...(worktreesOf.get(r.id) ?? []).map((w) => `${w.name} ${w.branch ?? ''}`)].join(' ').toLowerCase();
+    return q ? list.filter((r) => text(r).includes(q)) : list;
+  }, [mainRepos, worktreesOf, query]);
 
   const groups = useMemo(() => {
     const favs = filtered.filter((r) => r.favorite);
@@ -252,7 +269,8 @@ export function Sidebar() {
               .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name))
               .map((r) => {
                 const hue = hueOf(r.github?.owner ?? r.name);
-                const active = r.id === activeRepoId && view === 'repo';
+                const active = r.id === activeFamily && view === 'repo';
+                const wts = worktreesOf.get(r.id)?.length ?? 0;
                 return (
                   <button
                     key={r.id}
@@ -268,6 +286,7 @@ export function Sidebar() {
                       {r.name[0]?.toUpperCase()}
                     </span>
                     {r.favorite && <span className="rail-fav">★</span>}
+                    {wts > 0 && <span className="rail-wt" title={`${wts} worktree(s) open`}>🗂</span>}
                     {r.hasConflicts ? <span className="rail-dot danger" /> : r.changeCount > 0 ? <span className="rail-dot warn" /> : null}
                   </button>
                 );
@@ -281,7 +300,7 @@ export function Sidebar() {
           <button className="rail-toggle inline" onClick={toggleRail} title="Minimise sidebar (Ctrl+B)" aria-label="Minimise sidebar">
             «
           </button>
-          Repositories ({repos.length})
+          Repositories ({mainRepos.length})
         </span>
         <div style={{ position: 'relative' }} ref={menuRef}>
           <button className="btn sm" onClick={() => setMenu((m) => !m)}>
@@ -314,15 +333,15 @@ export function Sidebar() {
           )}
         </div>
       </div>
-      {repos.length > 5 && (
+      {mainRepos.length > 5 && (
         <div style={{ padding: '0 12px 8px' }}>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search repositories…" />
         </div>
       )}
 
       <div className="repo-list">
-        {repos.length === 0 && <div className="small muted" style={{ padding: 8 }}>No repositories yet. Use “+ Add”.</div>}
-        {repos.length > 0 && filtered.length === 0 && <div className="small muted" style={{ padding: 8 }}>No repository matches “{query}”.</div>}
+        {mainRepos.length === 0 && <div className="small muted" style={{ padding: 8 }}>No repositories yet. Use “+ Add”.</div>}
+        {mainRepos.length > 0 && filtered.length === 0 && <div className="small muted" style={{ padding: 8 }}>No repository matches “{query}”.</div>}
         {groups.map((g) => {
           // Searching always shows matches, even inside collapsed groups.
           const isCollapsed = collapsed.has(g.key) && !query.trim();
@@ -338,10 +357,14 @@ export function Sidebar() {
               </button>
               {!isCollapsed && (
                 <div className="repo-group-body">
-                  {g.repos.map((r, i) => (
+                  {g.repos.map((r, i) => {
+                    const wts = worktreesOf.get(r.id) ?? [];
+                    const family = activeFamily === r.id && view === 'repo';
+                    const inWorktree = family && r.id !== activeRepoId;
+                    return (
+                    <div key={r.id} className={`repo-fam ${family && wts.length ? 'open' : ''}`}>
                     <div
-                      key={r.id}
-                      className={`repo-item ${r.id === activeRepoId && view === 'repo' ? 'active' : ''} ${ctxMenu?.repo.id === r.id ? 'ctx' : ''}`}
+                      className={`repo-item ${family && !inWorktree ? 'active' : ''} ${inWorktree ? 'family' : ''} ${ctxMenu?.repo.id === r.id ? 'ctx' : ''}`}
                       style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
                       onClick={() => selectRepo(r.id)}
                       onContextMenu={(e) => {
@@ -356,13 +379,41 @@ export function Sidebar() {
                         {r.hasConflicts && <span className="dot danger" title="Merge conflicts" />}
                         {!r.exists && <span className="dot danger" title="Folder missing" />}
                         {r.favorite && <span className="repo-star" title="Favorite">★</span>}
+                        {wts.length > 0 && !family && (
+                          <span className="repo-wt-count" title={`${wts.length} worktree(s) open in Git Baba:\n${wts.map((w) => `⎇ ${w.branch ?? w.name}`).join('\n')}`}>
+                            🗂 {wts.length}
+                          </span>
+                        )}
                       </div>
                       <div className="meta">
                         {r.branch && <span className="repo-branch">⎇ {r.branch}</span>}
                         {repoSubtitle(r)}
                       </div>
                     </div>
-                  ))}
+                    {family && wts.length > 0 && (
+                      <div className="repo-wts">
+                        {wts.map((w) => (
+                          <div
+                            key={w.id}
+                            className={`repo-wt ${w.id === activeRepoId ? 'active' : ''} ${ctxMenu?.repo.id === w.id ? 'ctx' : ''}`}
+                            onClick={() => selectRepo(w.id)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              setCtxMenu({ repo: w, x: e.clientX, y: e.clientY });
+                            }}
+                            title={`Worktree of ${r.name}\n${w.path}`}
+                          >
+                            <span className="repo-wt-ico">🗂</span>
+                            <span className="ellipsis grow">{w.branch ?? w.name}</span>
+                            {w.changeCount > 0 && <span className="repo-changes" title={`${w.changeCount} uncommitted change(s)`}>{w.changeCount}</span>}
+                            {!w.exists && <span className="dot danger" title="Folder missing" />}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

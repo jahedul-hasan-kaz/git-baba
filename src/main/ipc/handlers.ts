@@ -24,6 +24,7 @@ import type {
 import type { AppContext } from '../context';
 import { AppError, toFriendlyError } from '../git/errors';
 import { EMPTY_TREE, GitService } from '../git/GitService';
+import { mainWorktreeOf } from '../git/worktrees';
 import { countChanges } from '../git/parsers';
 import { analyzeReport, recheckReport } from '../git/pushRuleAnalysis';
 import { parsePushRejection } from '../git/pushRules';
@@ -255,8 +256,11 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
     }
     const savedSecrets = ctx.secrets.status(repo.id);
     const parsed = remoteUrl ? parseRemoteUrl(remoteUrl) : null;
+    const mainPath = exists ? mainWorktreeOf(repo.path) : null;
+    const parent = mainPath ? ctx.repos.findByPath(mainPath) : undefined;
     return {
       ...repo,
+      worktreeOf: parent && parent.id !== repo.id ? parent.id : null,
       github: parsed?.isGitHub && parsed.owner && parsed.repo ? { owner: parsed.owner, repo: parsed.repo } : null,
       ...repoIdentity(repo, parsed),
       exists,

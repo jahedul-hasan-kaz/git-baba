@@ -93,6 +93,8 @@ export interface RepoSummary extends RepoRecord {
   account: { id: string; login: string } | null;
   /** "personal" when the owner is the account itself, otherwise the organisation/owner name. */
   ownerLabel: string | null;
+  /** When this folder is a linked worktree of another repository in the app: that repository's id. */
+  worktreeOf: string | null;
 }
 
 export type ChangeKind =

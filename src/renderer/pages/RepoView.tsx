@@ -279,8 +279,9 @@ const deckColor = (s: string) => {
 
 /** Repository identity: monogram tile, name and interactive chips (remote, account, owner, folder). */
 function RepoIdentity() {
-  const { activeRepo, toast, showError } = useApp();
+  const { activeRepo, repos, selectRepo, toast, showError } = useApp();
   if (!activeRepo) return null;
+  const mainRepo = activeRepo.worktreeOf ? repos.find((r) => r.id === activeRepo.worktreeOf) : undefined;
   const c = deckColor(activeRepo.identity ?? activeRepo.name);
   const copy = (text: string, what: string) =>
     call('app:copyText', { text })
@@ -297,6 +298,13 @@ function RepoIdentity() {
           {activeRepo.name}
         </h1>
         <div className="deck-chips">
+          {mainRepo && (
+            <button className="deck-chip wt-of" onClick={() => selectRepo(mainRepo.id)} title={`This folder is a worktree of ${mainRepo.name}\nClick to go back to the main folder`}>
+              <span>🗂</span>
+              <span className="ellipsis">worktree of {mainRepo.name}</span>
+              <span className="deck-chip-go">↩</span>
+            </button>
+          )}
           {activeRepo.identity || activeRepo.remoteUrl ? (
             <button
               className="deck-chip"

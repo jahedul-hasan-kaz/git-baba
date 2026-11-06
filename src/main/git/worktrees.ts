@@ -26,6 +26,29 @@ export function parseWorktreeList(out: string): Omit<WorktreeInfo, 'current' | '
   return list;
 }
 
+/**
+ * For a linked worktree (its `.git` is a file pointing into another repository's `.git/worktrees/<name>`),
+ * the folder of that repository's main working tree; null for an ordinary repository or a bare one.
+ */
+export function mainWorktreeOf(dir: string): string | null {
+  try {
+    const dotGit = path.join(dir, '.git');
+    if (!fs.statSync(dotGit).isFile()) return null;
+    const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+    if (!m) return null;
+    const gitdir = path.resolve(dir, m[1].trim());
+    let common = path.resolve(gitdir, '..', '..');
+    try {
+      common = path.resolve(gitdir, fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim());
+    } catch {
+      // Older layouts without a commondir file: <common>/worktrees/<name>.
+    }
+    return path.basename(common).toLowerCase() === '.git' ? path.dirname(common) : null;
+  } catch {
+    return null;
+  }
+}
+
 const same = (a: string, b: string) => {
   const n = (p: string) => path.resolve(p).replace(/[\\/]+$/, '');
   return process.platform === 'win32' || process.platform === 'darwin' ? n(a).toLowerCase() === n(b).toLowerCase() : n(a) === n(b);

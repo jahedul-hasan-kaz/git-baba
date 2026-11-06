@@ -3764,3 +3764,20 @@ button.cd-tile:hover { border-color: var(--accent); background: rgba(91, 140, 25
 .wt-preview-row.new { padding-left: 18px; position: relative; }
 .wt-preview-row.new::before { content: ""; position: absolute; left: 6px; top: -10px; width: 8px; height: 18px; border-left: 2px solid var(--bc); border-bottom: 2px solid var(--bc); border-bottom-left-radius: 6px; }
 @media (prefers-reduced-motion: reduce) { .wt-card, .wt-card.here .wt-node, .wr-mode-pill { animation: none; transition: none; } }
+
+/* ---------------- Sidebar: worktrees folded under their repository ---------------- */
+.repo-fam { position: relative; }
+.repo-fam.open { margin-bottom: 4px; border-radius: 9px; background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.repo-fam.open > .repo-item { margin-bottom: 0; }
+.repo-item.family { border-color: color-mix(in srgb, var(--accent) 35%, transparent); background: var(--bg-3); }
+.repo-wt-count { font-size: 10.5px; padding: 0 6px; border-radius: 999px; color: var(--text-2); background: color-mix(in srgb, var(--text-2) 13%, transparent); font-weight: 600; white-space: nowrap; }
+.repo-wts { position: relative; padding: 3px 4px 5px 22px; display: flex; flex-direction: column; gap: 2px; animation: nb-in 0.2s ease both; }
+.repo-wts::before { content: ""; position: absolute; left: 14px; top: 0; bottom: 14px; width: 2px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 35%, var(--border-2)); }
+.repo-wt { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px; border-radius: 7px; border: 1px solid transparent; font-size: 12px; font-family: var(--mono, ui-monospace, monospace); color: var(--text-2); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+.repo-wt::before { content: ""; position: absolute; left: -8px; top: 50%; width: 7px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 35%, var(--border-2)); }
+.repo-wt:hover, .repo-wt.ctx { background: var(--bg-3); color: var(--text); }
+.repo-wt.active { color: var(--text); background: var(--bg-4); border-color: var(--accent); }
+.repo-wt-ico { font-size: 11px; font-family: initial; }
+.rail-wt { position: absolute; bottom: -3px; right: -3px; font-size: 10px; filter: drop-shadow(0 0 2px var(--bg-2)); }
+.deck-chip.wt-of { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
+.deck-chip.wt-of:hover { background: color-mix(in srgb, var(--accent) 12%, var(--bg-3)); }

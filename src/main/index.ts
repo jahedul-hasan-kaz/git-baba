@@ -262,6 +262,8 @@ app.whenReady().then(() => {
         const parsed = parseRemoteUrl(url);
         if (!parsed.isGitHub || !parsed.owner || !parsed.repo) continue;
         if (repoOwnerAccount(appCtx.accounts, repo, parsed)?.id !== accountId) continue;
+        // A repository and its worktrees share one GitHub repository: watch it once.
+        if (out.some((w) => w.owner.toLowerCase() === parsed.owner!.toLowerCase() && w.name.toLowerCase() === parsed.repo!.toLowerCase())) continue;
         out.push({ repo, accountId, owner: parsed.owner, name: parsed.repo });
       }
       return out;
