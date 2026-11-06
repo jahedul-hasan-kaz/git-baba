@@ -214,16 +214,6 @@ export function PrHero({ repoId, pr, ctx, onRefresh, onShowMerge, onBack }: Prop
         </button>
       </div>
 
-      {pr.linkedIssues.length > 0 && (
-        <div className="linked-issues">
-          <span className="small muted">Closes</span>
-          {pr.linkedIssues.map((i) => (
-            <button key={i.number} className={`issue-chip ${i.state.toLowerCase()}`} onClick={() => call('shell:openExternal', { url: i.url }).catch(() => undefined)} title={`${i.title} — ${i.state.toLowerCase()}`}>
-              {i.state === 'OPEN' ? '◉' : '✓'} #{i.number} <span className="ellipsis">{i.title}</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       {confirm && (
         <ConfirmDialog

@@ -904,7 +904,7 @@ export class GitService {
       const status = await this.status();
       return status.branch ? [{ name: status.branch, current: true, remote: false, oid: '', subject: '(no commits yet)' }] : [];
     }
-    return parseBranches(await this.gitOut(['for-each-ref', `--format=${BRANCH_FORMAT}`, 'refs/heads', 'refs/remotes']));
+    return parseBranches(await this.gitOut(['for-each-ref', '--sort=-committerdate', `--format=${BRANCH_FORMAT}`, 'refs/heads', 'refs/remotes']));
   }
 
   /** Where each branch was started from: Git's own reflog note where it exists, else the nearest other branch in its history. */

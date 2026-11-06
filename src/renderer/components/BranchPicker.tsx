@@ -149,7 +149,7 @@ export function BranchPicker({ value, onChange, items, special = [], placeholder
         .map((it) => ({ it, m: match(it) }))
         .filter((x): x is { it: PickerItem; m: { score: number; hits: number[] } } => !!x.m);
       if (query) scored.sort((a, b) => b.m.score - a.m.score);
-      else scored.sort((a, b) => Number(!!b.it.current) - Number(!!a.it.current) || (b.it.date ?? '').localeCompare(a.it.date ?? ''));
+      else scored.sort((a, b) => Number(!!b.it.current) - Number(!!a.it.current) || (Date.parse(b.it.date ?? '') || 0) - (Date.parse(a.it.date ?? '') || 0));
       if (!scored.length) return;
       out.push({ kind: 'head', label: `${label} · ${scored.length}` });
       scored.forEach(({ it, m }) => out.push({ kind: 'item', item: it, hits: m.hits, key: `${label}:${it.name}` }));

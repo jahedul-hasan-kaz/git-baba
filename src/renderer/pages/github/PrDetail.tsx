@@ -3,7 +3,7 @@ import type { DraftReviewComment, GhRepoContext, PrCommit, PrDetails, PrFilesRes
 import type { CommitDetails, FriendlyError } from '../../../shared/types';
 import { DiffViewer } from '../../components/DiffViewer';
 import { ErrorPanel } from '../../components/ErrorPanel';
-import { Avatar, LabelChip, Picker, relTime, ReviewBadge, Skeleton, useGh, useMutation } from '../../components/github/common';
+import { Avatar, relTime, Skeleton, useGh, useMutation } from '../../components/github/common';
 import { Markdown } from '../../components/Markdown';
 import { Modal, Spinner } from '../../components/Modal';
 import { ConfirmDialog } from '../../dialogs/ConfirmDialog';
@@ -17,6 +17,7 @@ import { CHECK_STATE, CommitsTimeline } from './pr/CommitsTimeline';
 import { isTokenProblem, useGhCli } from './pr/ghCli';
 import { MergeStatusPanel } from './pr/MergeStatusPanel';
 import { PrHero } from './pr/PrHero';
+import { mergeVerdict } from './pr/mergeVerdict';
 
 /** Markdown body for descriptions and comments; links open in the browser, never in the app window. */
 function MdBody({ text, empty = 'No description provided.' }: { text: string; empty?: string }) {
@@ -35,7 +36,7 @@ interface Props {
   onMetadataChanged: () => void;
 }
 
-export function PrDetail({ repoId, ctx, metadata, number, onBack, onMetadataChanged }: Props) {
+export function PrDetail({ repoId, ctx, metadata, number, onBack }: Props) {
   const { bump } = useApp();
   const [commitOpen, setCommitOpen] = useState<PrCommit | null>(null);
   const [checksCommit, setChecksCommit] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export function PrDetail({ repoId, ctx, metadata, number, onBack, onMetadataChan
   const perms = pr.permissions;
 
   return (
-    <div className="content" style={{ paddingTop: 10 }}>
+    <div className="content prd" style={{ paddingTop: 10 }}>
       <PrHero
         repoId={repoId}
         pr={pr}
@@ -90,24 +91,43 @@ export function PrDetail({ repoId, ctx, metadata, number, onBack, onMetadataChan
         }}
       />
 
-      <div className="tabs" style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
-        {(
-          [
-            ['conversation', `Conversation`, pr.comments],
-            ['commits', 'Commits', pr.commits],
-            ['checks', 'Checks & security', pr.checksSummary.total],
-            ['files', 'Files changed', pr.changedFiles],
-          ] as [Tab, string, number][]
-        ).map(([id, label, n]) => (
-          <div key={id} className={`tab ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
-            {id === 'checks' && checkState && <span className={`text-${CHECK_STATE[checkState].cls}`}>{CHECK_STATE[checkState].icon}</span>}
-            {label} <span className="badge">{n}</span>
-          </div>
-        ))}
+      <Journey
+        pr={pr}
+        onGo={(t) => {
+          if (t === 'merge') {
+            setTab('conversation');
+            setTimeout(() => mergeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+          } else setTab(t);
+        }}
+      />
+
+      <div className="prd-dock">
+        <nav className="prd-tabs" role="tablist">
+          {(
+            [
+              ['conversation', '💬', 'Conversation', pr.comments],
+              ['commits', '◉', 'Commits', pr.commits],
+              ['checks', '✓', 'Checks', pr.checksSummary.total],
+              ['files', '▤', 'Files', pr.changedFiles],
+            ] as [Tab, string, string, number][]
+          ).map(([id, icon, label, n]) => (
+            <button key={id} role="tab" className={`prd-tab ${tab === id ? 'on' : ''}`} onClick={() => setTab(id)}>
+              <span className={`prd-tab-ico ${id === 'checks' && checkState ? `text-${CHECK_STATE[checkState].cls}` : ''}`}>{id === 'checks' && checkState ? CHECK_STATE[checkState].icon : icon}</span>
+              {label}
+              <span className="prd-tab-n">{n}</span>
+            </button>
+          ))}
+        </nav>
         <span className="spacer" />
         {pr.state === 'OPEN' && (
-          <button className="btn sm primary" style={{ alignSelf: 'center', marginLeft: 10 }} onClick={() => setReviewOpen(true)}>
-            {pending.length ? `Finish your review (${pending.length})` : 'Review changes'}
+          <button className={`btn primary prd-review-btn ${pending.length ? 'has' : ''}`} onClick={() => setReviewOpen(true)}>
+            {pending.length ? (
+              <>
+                Finish review <span className="prd-pending">{pending.length}</span>
+              </>
+            ) : (
+              'Review changes'
+            )}
           </button>
         )}
       </div>
@@ -142,7 +162,7 @@ export function PrDetail({ repoId, ctx, metadata, number, onBack, onMetadataChan
             )}
             {tab === 'checks' && <ChecksSecurity repoId={repoId} pr={pr} metadata={metadata} canWrite={perms.canWrite} initialCommit={checksCommit} onChanged={refresh} />}
           </div>
-          <Sidebar repoId={repoId} pr={pr} metadata={metadata} onChanged={refresh} onMetadataChanged={onMetadataChanged} />
+          <ReviewPanel pr={pr} onGo={setTab} />
         </div>
       )}
 
@@ -488,125 +508,178 @@ function CommitModal({ repoId, oid, message, prUrl, onClose }: { repoId: string;
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar
+// Journey — where the pull request stands, as five connected steps
 // ---------------------------------------------------------------------------
 
-function Sidebar({ repoId, pr, metadata, onChanged, onMetadataChanged }: { repoId: string; pr: PrDetails; metadata: RepoMetadata | null; onChanged: () => void; onMetadataChanged: () => void }) {
-  const { run } = useMutation();
-  const triage = pr.permissions.canTriage;
-  const noTriage = 'You need triage (or higher) access to change this.';
-  const users = (metadata?.assignableUsers ?? []).map((u) => ({ value: u.login, label: u.login }));
-  const reviewerState = new Map(pr.latestReviews.map((r) => [r.author, r.state]));
-  const reviewers = [...new Set([...pr.requestedReviewers, ...pr.latestReviews.map((r) => r.author)])];
+type Tone = 'ok' | 'warn' | 'danger' | 'idle' | 'merged' | 'info' | 'closed';
 
-  const diff = (next: string[], prev: string[]) => ({ add: next.filter((x) => !prev.includes(x)), remove: prev.filter((x) => !next.includes(x)) });
-
+function Journey({ pr, onGo }: { pr: PrDetails; onGo: (t: Tab | 'merge') => void }) {
+  const s = pr.checksSummary;
+  const unresolved = pr.reviewThreads.filter((t) => !t.isResolved).length;
+  const approvals = pr.latestReviews.filter((r) => r.state === 'APPROVED').length;
+  const verdict = mergeVerdict(pr);
+  const steps: { key: string; go: Tab | 'merge'; tone: Tone; title: string; sub: string }[] = [
+    {
+      key: 'open',
+      go: 'commits',
+      tone: pr.isDraft && pr.state === 'OPEN' ? 'info' : 'ok',
+      title: pr.isDraft && pr.state === 'OPEN' ? 'Draft' : 'Proposed',
+      sub: `${pr.commits} commit${pr.commits === 1 ? '' : 's'} · ${relTime(pr.createdAt)}`,
+    },
+    {
+      key: 'checks',
+      go: 'checks',
+      tone: !s.total ? 'idle' : s.failed ? 'danger' : s.pending ? 'warn' : 'ok',
+      title: 'Checks',
+      sub: !s.total ? 'none configured' : s.failed ? `${s.failed} failing` : s.pending ? `${s.pending} running` : `${s.passed} passed`,
+    },
+    {
+      key: 'review',
+      go: 'files',
+      tone: pr.reviewDecision === 'APPROVED' ? 'ok' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'danger' : pr.reviewDecision === 'REVIEW_REQUIRED' ? 'warn' : approvals ? 'ok' : 'idle',
+      title: 'Review',
+      sub: pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : approvals ? `${approvals} approval${approvals === 1 ? '' : 's'}` : pr.requestedReviewers.length ? `${pr.requestedReviewers.length} requested` : 'no reviews yet',
+    },
+    {
+      key: 'talk',
+      go: 'conversation',
+      tone: unresolved ? 'warn' : pr.reviewThreads.length ? 'ok' : 'idle',
+      title: 'Conversations',
+      sub: unresolved ? `${unresolved} unresolved` : pr.reviewThreads.length ? 'all resolved' : `${pr.comments} comment${pr.comments === 1 ? '' : 's'}`,
+    },
+    { key: 'merge', go: 'merge', tone: verdict.tone as Tone, title: pr.state === 'MERGED' ? 'Merged' : pr.state === 'CLOSED' ? 'Closed' : 'Merge', sub: verdict.title },
+  ];
   return (
-    <div className="pr-sidebar">
-      <div className="sidebar-block">
-        <Picker
-          title="Reviewers"
-          multi
-          disabled={!triage}
-          disabledReason={noTriage}
-          options={users.filter((u) => u.value !== pr.author?.login)}
-          selected={pr.requestedReviewers}
-          onChange={(v) => {
-            const d = diff(v, pr.requestedReviewers);
-            void run(() => call('gh:prReviewers', { repoId, number: pr.number, ...d }), 'Reviewers updated').then(onChanged);
-          }}
-        />
-        {reviewers.length === 0 && <span className="small muted">No reviews</span>}
-        {reviewers.map((r) => {
-          const s = reviewerState.get(r);
-          return (
-            <div key={r} className="row small">
-              <Avatar login={r} size={16} /> <span className="grow">{r}</span>
-              <span className={s === 'APPROVED' ? 'text-ok' : s === 'CHANGES_REQUESTED' ? 'text-danger' : 'muted'} title={s ?? 'Awaiting review'}>
-                {s === 'APPROVED' ? '✓' : s === 'CHANGES_REQUESTED' ? '✕' : s === 'COMMENTED' ? '💬' : '●'}
-              </span>
-            </div>
-          );
-        })}
-        <ReviewBadge decision={pr.reviewDecision} />
-      </div>
-      <div className="sidebar-block">
-        <Picker
-          title="Assignees"
-          multi
-          disabled={!triage}
-          disabledReason={noTriage}
-          options={users}
-          selected={pr.assignees.map((a) => a.login)}
-          onChange={(v) => {
-            const d = diff(
-              v,
-              pr.assignees.map((a) => a.login),
-            );
-            void run(() => call('gh:prAssignees', { repoId, number: pr.number, ...d }), 'Assignees updated').then(onChanged);
-          }}
-        />
-        {pr.assignees.length === 0 ? <span className="small muted">No one assigned</span> : pr.assignees.map((a) => <div key={a.login} className="row small"><Avatar login={a.login} size={16} /> {a.login}</div>)}
-      </div>
-      <div className="sidebar-block">
-        <Picker
-          title="Labels"
-          multi
-          disabled={!triage}
-          disabledReason={noTriage}
-          options={(metadata?.labels ?? []).map((l) => ({ value: l.name, label: l.name, color: l.color, hint: l.description ?? undefined }))}
-          selected={pr.labels.map((l) => l.name)}
-          onChange={(v) => void run(() => call('gh:prLabels', { repoId, number: pr.number, labels: v }), 'Labels updated').then(onChanged)}
-          onCreate={
-            pr.permissions.canWrite
-              ? (name) => {
-                  const color = Math.floor(Math.random() * 0xffffff)
-                    .toString(16)
-                    .padStart(6, '0');
-                  void run(() => call('gh:labelCreate', { repoId, name, color }), `Label “${name}” created`)
-                    .then(() => call('gh:prLabels', { repoId, number: pr.number, labels: [...pr.labels.map((l) => l.name), name] }))
-                    .then(() => {
-                      onMetadataChanged();
-                      onChanged();
-                    });
-                }
-              : undefined
-          }
-          createLabel="Create label"
-        />
-        <div className="row wrap">{pr.labels.length ? pr.labels.map((l) => <LabelChip key={l.name} label={l} />) : <span className="small muted">None yet</span>}</div>
-      </div>
-      <div className="sidebar-block">
-        <Picker
-          title="Milestone"
-          disabled={!triage}
-          disabledReason={noTriage}
-          allowClear
-          options={(metadata?.milestones ?? []).map((m) => ({ value: String(m.number), label: m.title, hint: m.dueOn ? `due ${new Date(m.dueOn).toLocaleDateString()}` : undefined }))}
-          selected={(metadata?.milestones ?? []).filter((m) => m.title === pr.milestone).map((m) => String(m.number))}
-          onChange={(v) => void run(() => call('gh:prMilestone', { repoId, number: pr.number, milestone: v[0] ? Number(v[0]) : null }), 'Milestone updated').then(onChanged)}
-        />
-        <span className="small muted">{pr.milestone ?? 'No milestone'}</span>
-      </div>
-      <div className="sidebar-block">
-        <div className="sidebar-title-static">Linked issues</div>
-        {pr.linkedIssues.length === 0 ? (
-          <span className="small muted">Use “Closes #123” in the description to link issues.</span>
-        ) : (
-          pr.linkedIssues.map((i) => (
-            <div key={i.number} className="small">
-              <a onClick={() => call('shell:openExternal', { url: i.url }).catch(() => undefined)}>
-                #{i.number} {i.title}
-              </a>{' '}
-              <span className="muted">({i.state.toLowerCase()})</span>
-            </div>
-          ))
-        )}
-      </div>
-      {!triage && <div className="small muted">Your role ({pr.permissions.level.toLowerCase()}) can view this pull request but not change its metadata.</div>}
+    <div className="prd-journey" role="list">
+      {steps.map((st, i) => (
+        <button key={st.key} role="listitem" className={`prd-step ${st.tone}`} onClick={() => onGo(st.go)} title={st.key === 'merge' ? verdict.detail : undefined}>
+          <span className="prd-step-node">{st.tone === 'ok' || st.tone === 'merged' ? '✓' : st.tone === 'danger' ? '✕' : st.tone === 'warn' ? '!' : i + 1}</span>
+          <span className="prd-step-text">
+            <strong>{st.title}</strong>
+            <span className="small muted ellipsis">{st.sub}</span>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Review panel — read-only reviewers and an at-a-glance summary
+// ---------------------------------------------------------------------------
+
+const REVIEW_LOOK: Record<string, { cls: string; icon: string; label: string }> = {
+  APPROVED: { cls: 'ok', icon: '✓', label: 'Approved' },
+  CHANGES_REQUESTED: { cls: 'danger', icon: '✕', label: 'Requested changes' },
+  COMMENTED: { cls: 'info', icon: '💬', label: 'Commented' },
+  DISMISSED: { cls: 'idle', icon: '⊘', label: 'Dismissed' },
+  PENDING: { cls: 'warn', icon: '…', label: 'Awaiting review' },
+};
+
+function ReviewPanel({ pr, onGo }: { pr: PrDetails; onGo: (t: Tab) => void }) {
+  const latest = new Map(pr.latestReviews.map((r) => [r.author, r]));
+  const people = [...new Set([...pr.latestReviews.map((r) => r.author), ...pr.requestedReviewers])].map((login) => {
+    // A re-requested reviewer is waiting again, whatever they said last time.
+    const waiting = pr.requestedReviewers.includes(login);
+    const r = latest.get(login);
+    return { login, state: waiting ? 'PENDING' : r?.state ?? 'PENDING', at: waiting ? null : r?.submittedAt ?? null, before: waiting ? r?.state : undefined };
+  });
+  const order = ['CHANGES_REQUESTED', 'APPROVED', 'PENDING', 'COMMENTED', 'DISMISSED'];
+  people.sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || a.login.localeCompare(b.login));
+  const approved = people.filter((p) => p.state === 'APPROVED').length;
+  const s = pr.checksSummary;
+  const unresolved = pr.reviewThreads.filter((t) => !t.isResolved).length;
+  const decision = pr.reviewDecision === 'APPROVED' ? ['ok', 'Approved'] : pr.reviewDecision === 'CHANGES_REQUESTED' ? ['danger', 'Changes requested'] : pr.reviewDecision === 'REVIEW_REQUIRED' ? ['warn', 'Review required'] : null;
+
+  return (
+    <aside className="prd-panel">
+      <section className="prd-card">
+        <div className="prd-card-head">
+          <strong>Reviewers</strong>
+          {people.length > 0 && (
+            <span className="small muted">
+              {approved}/{people.length} approved
+            </span>
+          )}
+        </div>
+        {people.length > 0 && (
+          <div className="prd-meter" aria-hidden>
+            {people.map((p) => (
+              <i key={p.login} className={REVIEW_LOOK[p.state]?.cls ?? 'idle'} />
+            ))}
+          </div>
+        )}
+        {people.length === 0 ? (
+          <div className="prd-empty small muted">No one has been asked to review yet.</div>
+        ) : (
+          <ul className="prd-people">
+            {people.map((p) => {
+              const look = REVIEW_LOOK[p.state] ?? REVIEW_LOOK.PENDING;
+              return (
+                <li key={p.login} className={`prd-person ${look.cls}`}>
+                  <span className="prd-ring">
+                    <Avatar login={p.login} size={28} />
+                    <span className="prd-ring-badge">{look.icon}</span>
+                  </span>
+                  <span className="prd-person-text">
+                    <strong className="ellipsis">{p.login}</strong>
+                    <span className="small muted">
+                      {look.label}
+                      {p.at ? ` · ${relTime(p.at)}` : ''}
+                      {p.before && p.before !== 'PENDING' ? ` · re-requested` : ''}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {decision && <div className={`prd-decision ${decision[0]}`}>{decision[1]}</div>}
+      </section>
+
+      <section className="prd-card">
+        <div className="prd-card-head">
+          <strong>At a glance</strong>
+        </div>
+        <div className="prd-glance">
+          <button onClick={() => onGo('files')}>
+            <strong>{pr.changedFiles}</strong>
+            <span className="small muted">files</span>
+          </button>
+          <button onClick={() => onGo('commits')}>
+            <strong>{pr.commits}</strong>
+            <span className="small muted">commits</span>
+          </button>
+          <button onClick={() => onGo('conversation')} className={unresolved ? 'warn' : ''}>
+            <strong>{unresolved}</strong>
+            <span className="small muted">unresolved</span>
+          </button>
+        </div>
+        <div className="prd-churn" title={`${pr.additions} additions, ${pr.deletions} deletions`}>
+          <span className="text-ok">+{pr.additions.toLocaleString()}</span>
+          <span className="prd-churn-bar">
+            <i className="add" style={{ flex: pr.additions }} />
+            <i className="del" style={{ flex: pr.deletions }} />
+          </span>
+          <span className="text-danger">−{pr.deletions.toLocaleString()}</span>
+        </div>
+        {s.total > 0 && (
+          <button className="prd-checks" onClick={() => onGo('checks')}>
+            <span className="prd-churn-bar">
+              <i className="add" style={{ flex: s.passed }} />
+              <i className="warn" style={{ flex: s.pending }} />
+              <i className="del" style={{ flex: s.failed }} />
+            </span>
+            <span className="small muted">
+              {s.passed} passed · {s.pending} running · {s.failed} failing
+            </span>
+          </button>
+        )}
+      </section>
+    </aside>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // Review submission

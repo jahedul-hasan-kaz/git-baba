@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GhRepoContext, PrListItem, PrListSource, RepoMetadata } from '../../../shared/github';
 import { getQualifier, QUALIFIERS, setQualifier, setState, stateOf, tokenize } from '../../../shared/prQuery';
 import { ErrorPanel } from '../../components/ErrorPanel';
-import { Avatar, LabelChip, relTime, Skeleton, useGh } from '../../components/github/common';
+import { Avatar, relTime, Skeleton, useGh } from '../../components/github/common';
 import { call } from '../../services/api';
 
 const DEFAULT_QUERY = 'is:pr is:open';
@@ -33,12 +33,13 @@ const QUICK: { label: string; key: string; value: string }[] = [
   { label: '✎ Drafts', key: 'draft', value: 'true' },
 ];
 
-type Density = 'comfortable' | 'compact';
-function readDensity(): Density {
+type View = 'lanes' | 'stream' | 'compact';
+function readView(): View {
   try {
-    return localStorage.getItem('gg-pr-density') === 'compact' ? 'compact' : 'comfortable';
+    const v = localStorage.getItem('gg-pr-view');
+    return v === 'stream' || v === 'compact' ? v : 'lanes';
   } catch {
-    return 'comfortable';
+    return 'lanes';
   }
 }
 
@@ -53,7 +54,8 @@ interface Props {
 export function PrList({ repoId, ctx, metadata, onOpen, onCreate }: Props) {
   const [query, setQuery] = useState(DEFAULT_QUERY);
   const [input, setInput] = useState(`${DEFAULT_QUERY} `);
-  const [density, setDensity] = useState<Density>(readDensity);
+  const [view, setView] = useState<View>(readView);
+  const [sel, setSel] = useState(-1);
   const [extra, setExtra] = useState<PrListItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -118,10 +120,10 @@ export function PrList({ repoId, ctx, metadata, onOpen, onCreate }: Props) {
     }
   };
 
-  const setDens = (d: Density) => {
-    setDensity(d);
+  const setV = (v: View) => {
+    setView(v);
     try {
-      localStorage.setItem('gg-pr-density', d);
+      localStorage.setItem('gg-pr-view', v);
     } catch {
       // per-viewer convenience only
     }
@@ -204,11 +206,91 @@ export function PrList({ repoId, ctx, metadata, onOpen, onCreate }: Props) {
   const filtered = tokenize(query).some((t) => !(t.key === 'is' && ['pr', 'open', 'closed', 'merged'].includes(t.value.toLowerCase())));
   const humans = people.filter(([, b]) => !b).map(([l]) => l);
 
+  const lanes = useMemo(() => {
+    const m = new Map<LaneKey, PrListItem[]>();
+    for (const p of items) {
+      const k = laneOf(p, ctx.account);
+      m.set(k, [...(m.get(k) ?? []), p]);
+    }
+    return LANES.filter((l) => m.has(l.key)).map((l) => ({ ...l, items: m.get(l.key)! }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.data, extra, ctx.account]);
+  // Rows in the order they are drawn, for j/k navigation.
+  const ordered = view === 'lanes' ? lanes.flatMap((l) => l.items) : items;
+  const pulse = useMemo(() => {
+    const open = items.filter((p) => p.state === 'OPEN');
+    return {
+      yours: open.filter((p) => laneOf(p, ctx.account) === 'yours').length,
+      ready: open.filter((p) => laneOf(p, ctx.account) === 'ready').length,
+      blocked: open.filter((p) => laneOf(p, ctx.account) === 'blocked').length,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.data, extra, ctx.account]);
+
+  useEffect(() => setSel(-1), [query]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'j' || e.key === 'k') {
+        e.preventDefault();
+        setSel((s) => Math.max(0, Math.min(ordered.length - 1, s + (e.key === 'j' ? 1 : -1))));
+      } else if (e.key === 'Enter' && sel >= 0 && ordered[sel]) onOpen(ordered[sel].number);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ordered, sel, onOpen]);
+  useEffect(() => {
+    if (sel >= 0) document.querySelector(`[data-pr-idx="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [sel]);
+  const idxOf = new Map(ordered.map((p, i) => [p.id, i]));
+
+  const card = (pr: PrListItem, i: number) => (
+    <PrCard
+      key={pr.id}
+      pr={pr}
+      idx={idxOf.get(pr.id) ?? i}
+      selected={idxOf.get(pr.id) === sel}
+      compact={view === 'compact'}
+      account={ctx.account}
+      delay={Math.min(i, 20) * 14}
+      onOpen={() => onOpen(pr.number)}
+      onAuthor={(l, bot) => apply(setQualifier(query, 'author', asAuthor(l, bot)))}
+    />
+  );
+
   return (
-    <div className="content pr-page">
-      <div className="pr-toolbar">
-        <div className="pr-search">
-          <span className="muted">⌕</span>
+    <div className="content pr-page prx">
+      <header className="prx-head">
+        <div className="prx-title">
+          <h1>Pull requests</h1>
+          <div className="prx-pulse">
+            {counts && <span><strong>{counts.open}</strong> open</span>}
+            {pulse.yours > 0 && (
+              <button className="prx-pulse-chip you" onClick={() => apply(setQualifier(setState(DEFAULT_QUERY, 'open'), 'review-requested', '@me'))}>
+                <i /> {pulse.yours} waiting on you
+              </button>
+            )}
+            {pulse.ready > 0 && (
+              <span className="prx-pulse-chip ok">
+                <i /> {pulse.ready} ready to ship
+              </span>
+            )}
+            {pulse.blocked > 0 && (
+              <span className="prx-pulse-chip danger">
+                <i /> {pulse.blocked} blocked
+              </span>
+            )}
+          </div>
+        </div>
+        <button className="btn primary prx-new" onClick={onCreate} disabled={!ctx.permissions.canTriage && ctx.permissions.level === 'NONE'}>
+          ＋ New pull request
+        </button>
+      </header>
+
+      <div className="prx-command">
+        <div className="pr-search prx-search">
+          <span className="prx-search-ico">⌕</span>
           <input
             ref={box}
             value={input}
@@ -250,160 +332,170 @@ export function PrList({ repoId, ctx, metadata, onOpen, onCreate }: Props) {
             </div>
           )}
         </div>
-        <button className="btn primary" onClick={onCreate} disabled={!ctx.permissions.canTriage && ctx.permissions.level === 'NONE'}>
-          ＋ New pull request
-        </button>
+        <div className="prx-states" role="tablist">
+          {(
+            [
+              ['open', 'Open', counts?.open],
+              ['merged', 'Merged', counts?.merged],
+              ['closed', 'Closed', counts?.closed],
+              ['all', 'All', counts ? counts.open + counts.closed + counts.merged : undefined],
+            ] as const
+          ).map(([s, label, n]) => (
+            <button key={s} role="tab" className={`prx-state ${s} ${state === s ? 'on' : ''}`} onClick={() => apply(setState(query, s))}>
+              <i className="prx-dot" />
+              {label}
+              {n !== undefined && <span className="prx-count">{n}</span>}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="quick-filters">
-        {QUICK.map((f) => {
-          const on = getQualifier(query, f.key) === f.value;
-          return (
-            <button key={f.label} className={`quick-chip ${on ? 'on' : ''}`} onClick={() => apply(setQualifier(query, f.key, on ? null : f.value))}>
-              {f.label}
+      <div className="prx-bar">
+        <div className="prx-lenses">
+          {QUICK.map((f) => {
+            const on = getQualifier(query, f.key) === f.value;
+            return (
+              <button key={f.label} className={`prx-lens ${on ? 'on' : ''}`} onClick={() => apply(setQualifier(query, f.key, on ? null : f.value))}>
+                {f.label}
+              </button>
+            );
+          })}
+          {filtered && (
+            <button className="prx-lens clear" onClick={() => apply(setState(DEFAULT_QUERY, state))}>
+              ✕ Clear
             </button>
-          );
-        })}
-        {filtered && (
-          <button className="quick-chip clear" onClick={() => apply(setState(DEFAULT_QUERY, state))}>
-            ✕ Clear filters
+          )}
+        </div>
+        <span className="spacer" />
+        <Menu label="Author" value={author ? (author === '@me' ? 'you' : author.replace(/^app\//, '')) : null} onClear={() => apply(setQualifier(query, 'author', null))} searchable>
+          {(filter, close) => (
+            <>
+              <MenuItem on={author === '@me'} onClick={() => (apply(setQualifier(query, 'author', '@me')), close())}>
+                <Avatar login={ctx.account} size={18} /> You <span className="muted small">@me</span>
+              </MenuItem>
+              {people
+                .filter(([l]) => l.toLowerCase().includes(filter))
+                .map(([l, bot]) => (
+                  <MenuItem key={l} on={author === asAuthor(l, bot)} onClick={() => (apply(setQualifier(query, 'author', asAuthor(l, bot))), close())}>
+                    <Avatar login={l} size={18} /> {l} {bot && <span className="bot-tag">bot</span>}
+                  </MenuItem>
+                ))}
+            </>
+          )}
+        </Menu>
+        <Menu label="Reviews" value={reviewLabel} onClear={() => setReview(null)} searchable>
+          {(filter, close) => (
+            <>
+              <MenuGroup>Status</MenuGroup>
+              {REVIEW_STATUS.filter(([, l]) => l.toLowerCase().includes(filter)).map(([v, l, icon]) => (
+                <MenuItem key={v} on={`review:${reviewQ}` === v} onClick={() => (setReview('review', v.split(':')[1]), close())}>
+                  <span className={`rv-icon ${v.split(':')[1]}`}>{icon}</span> {l}
+                </MenuItem>
+              ))}
+              <MenuGroup>You</MenuGroup>
+              <MenuItem on={requested === '@me'} onClick={() => (setReview('review-requested', '@me'), close())}>
+                👀 Awaiting review from you
+              </MenuItem>
+              <MenuItem on={reviewedBy === '@me'} onClick={() => (setReview('reviewed-by', '@me'), close())}>
+                ✍ Reviewed by you
+              </MenuItem>
+              {humans.filter((l) => l.toLowerCase().includes(filter)).length > 0 && <MenuGroup>Reviewed by</MenuGroup>}
+              {humans
+                .filter((l) => l.toLowerCase().includes(filter))
+                .map((l) => (
+                  <MenuItem key={`rb-${l}`} on={reviewedBy === l} onClick={() => (setReview('reviewed-by', l), close())}>
+                    <Avatar login={l} size={18} /> {l}
+                  </MenuItem>
+                ))}
+              {humans.filter((l) => l.toLowerCase().includes(filter)).length > 0 && <MenuGroup>Review requested from</MenuGroup>}
+              {humans
+                .filter((l) => l.toLowerCase().includes(filter))
+                .map((l) => (
+                  <MenuItem key={`rr-${l}`} on={requested === l} onClick={() => (setReview('review-requested', l), close())}>
+                    <Avatar login={l} size={18} /> {l}
+                  </MenuItem>
+                ))}
+            </>
+          )}
+        </Menu>
+        <Menu label="Sort" value={sort ? SORTS.find(([v]) => v === sort)?.[1] ?? sort : 'Newest'} onClear={sort ? () => apply(setQualifier(query, 'sort', null)) : undefined} alignRight>
+          {(_, close) =>
+            SORTS.map(([v, l]) => (
+              <MenuItem key={v} on={(sort ?? 'created-desc') === v} onClick={() => (apply(setQualifier(query, 'sort', v === 'created-desc' ? null : v)), close())}>
+                {l}
+              </MenuItem>
+            ))
+          }
+        </Menu>
+        <div className="segmented sm prx-views" title="Layout">
+          {(
+            [
+              ['lanes', '▦', 'Lanes — grouped by what each pull request needs next'],
+              ['stream', '▤', 'Stream — one list in sort order'],
+              ['compact', '☰', 'Compact — dense one-line rows'],
+            ] as [View, string, string][]
+          ).map(([v, icon, tip]) => (
+            <button key={v} className={view === v ? 'on' : ''} onClick={() => setV(v)} title={tip}>
+              {icon}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {list.error && (
+        <div style={{ padding: 12 }}>
+          <ErrorPanel error={list.error} onAction={() => void list.reload()} available={['retry']} />
+        </div>
+      )}
+      {list.loading && <div className="pr-progress" />}
+      {list.data?.notice && items.length > 0 && <div className="small muted prx-notice">{list.data.notice}</div>}
+
+      <div className={`prx-body ${view}`}>
+        {list.loading && !list.data && <Skeleton rows={6} />}
+        {!list.loading && list.data && items.length === 0 && (
+          <div className="empty prx-empty">
+            <div className="empty-art">⇄</div>
+            <h3>{filtered ? 'Nothing matches these filters' : `No ${state === 'all' ? '' : state} pull requests`}</h3>
+            {list.data.notice && <p className="small muted">{list.data.notice}</p>}
+            <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}>
+              {filtered && (
+                <button className="btn sm" onClick={() => apply(setState(DEFAULT_QUERY, state))}>
+                  Clear filters
+                </button>
+              )}
+              {counts &&
+                (['open', 'closed', 'merged'] as const)
+                  .filter((s) => s !== state && counts[s] > 0)
+                  .map((s) => (
+                    <button key={s} className="btn sm" onClick={() => apply(setState(query, s))}>
+                      Show {counts[s]} {s}
+                    </button>
+                  ))}
+            </div>
+          </div>
+        )}
+        {view === 'lanes'
+          ? lanes.map((l) => (
+              <section key={l.key} className={`prx-lane ${l.key}`}>
+                <div className="prx-lane-head">
+                  <i className="prx-lane-dot" />
+                  <strong>{l.title}</strong>
+                  <span className="prx-count">{l.items.length}</span>
+                  <span className="small muted">{l.hint}</span>
+                </div>
+                <div className="prx-cards">{l.items.map(card)}</div>
+              </section>
+            ))
+          : <div className="prx-cards">{items.map(card)}</div>}
+        {hasMore && (
+          <button className="btn block prx-more" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? 'Loading…' : `Load more · ${items.length} of ${list.data?.total.toLocaleString()}`}
           </button>
         )}
       </div>
-
-      <div className="pr-board">
-        <div className="pr-board-head">
-          <div className="state-tabs">
-            {(
-              [
-                ['open', '⇄', 'Open', counts?.open],
-                ['closed', '✕', 'Closed', counts?.closed],
-                ['merged', '⇋', 'Merged', counts?.merged],
-                ['all', '◎', 'All', counts ? counts.open + counts.closed + counts.merged : undefined],
-              ] as const
-            ).map(([s, icon, label, n]) => (
-              <button key={s} className={`state-tab ${s} ${state === s ? 'on' : ''}`} onClick={() => apply(setState(query, s))}>
-                <span className="st-icon">{icon}</span> {label} {n !== undefined && <span className="st-count">{n}</span>}
-              </button>
-            ))}
-          </div>
-          <span className="spacer" />
-          <Menu label="Author" value={author ? (author === '@me' ? 'you' : author.replace(/^app\//, '')) : null} onClear={() => apply(setQualifier(query, 'author', null))} searchable>
-            {(filter, close) => (
-              <>
-                <MenuItem on={author === '@me'} onClick={() => (apply(setQualifier(query, 'author', '@me')), close())}>
-                  <Avatar login={ctx.account} size={18} /> You <span className="muted small">@me</span>
-                </MenuItem>
-                {people
-                  .filter(([l]) => l.toLowerCase().includes(filter))
-                  .map(([l, bot]) => (
-                    <MenuItem key={l} on={author === asAuthor(l, bot)} onClick={() => (apply(setQualifier(query, 'author', asAuthor(l, bot))), close())}>
-                      <Avatar login={l} size={18} /> {l} {bot && <span className="bot-tag">bot</span>}
-                    </MenuItem>
-                  ))}
-              </>
-            )}
-          </Menu>
-          <Menu label="Reviews" value={reviewLabel} onClear={() => setReview(null)} searchable>
-            {(filter, close) => (
-              <>
-                <MenuGroup>Status</MenuGroup>
-                {REVIEW_STATUS.filter(([, l]) => l.toLowerCase().includes(filter)).map(([v, l, icon]) => (
-                  <MenuItem key={v} on={`review:${reviewQ}` === v} onClick={() => (setReview('review', v.split(':')[1]), close())}>
-                    <span className={`rv-icon ${v.split(':')[1]}`}>{icon}</span> {l}
-                  </MenuItem>
-                ))}
-                <MenuGroup>You</MenuGroup>
-                <MenuItem on={requested === '@me'} onClick={() => (setReview('review-requested', '@me'), close())}>
-                  👀 Awaiting review from you
-                </MenuItem>
-                <MenuItem on={reviewedBy === '@me'} onClick={() => (setReview('reviewed-by', '@me'), close())}>
-                  ✍ Reviewed by you
-                </MenuItem>
-                {humans.filter((l) => l.toLowerCase().includes(filter)).length > 0 && <MenuGroup>Reviewed by</MenuGroup>}
-                {humans
-                  .filter((l) => l.toLowerCase().includes(filter))
-                  .map((l) => (
-                    <MenuItem key={`rb-${l}`} on={reviewedBy === l} onClick={() => (setReview('reviewed-by', l), close())}>
-                      <Avatar login={l} size={18} /> {l}
-                    </MenuItem>
-                  ))}
-                {humans.filter((l) => l.toLowerCase().includes(filter)).length > 0 && <MenuGroup>Review requested from</MenuGroup>}
-                {humans
-                  .filter((l) => l.toLowerCase().includes(filter))
-                  .map((l) => (
-                    <MenuItem key={`rr-${l}`} on={requested === l} onClick={() => (setReview('review-requested', l), close())}>
-                      <Avatar login={l} size={18} /> {l}
-                    </MenuItem>
-                  ))}
-              </>
-            )}
-          </Menu>
-          <Menu label="Sort" value={sort ? SORTS.find(([v]) => v === sort)?.[1] ?? sort : 'Newest'} onClear={sort ? () => apply(setQualifier(query, 'sort', null)) : undefined} alignRight>
-            {(_, close) =>
-              SORTS.map(([v, l]) => (
-                <MenuItem key={v} on={(sort ?? 'created-desc') === v} onClick={() => (apply(setQualifier(query, 'sort', v === 'created-desc' ? null : v)), close())}>
-                  {l}
-                </MenuItem>
-              ))
-            }
-          </Menu>
-          <div className="segmented sm density" title="Row density">
-            <button className={density === 'comfortable' ? 'on' : ''} onClick={() => setDens('comfortable')} title="Comfortable">
-              ▤
-            </button>
-            <button className={density === 'compact' ? 'on' : ''} onClick={() => setDens('compact')} title="Compact">
-              ☰
-            </button>
-          </div>
-        </div>
-
-        {list.error && (
-          <div style={{ padding: 12 }}>
-            <ErrorPanel error={list.error} onAction={() => void list.reload()} available={['retry']} />
-          </div>
-        )}
-        {list.loading && <div className="pr-progress" />}
-
-        <div className={`pr-rows ${density}`}>
-          {list.loading && !list.data && <Skeleton rows={6} />}
-          {!list.loading && list.data && items.length === 0 && (
-            <div className="empty">
-              <div className="empty-art">⇄</div>
-              <h3>{filtered ? 'Nothing matches these filters' : `No ${state === 'all' ? '' : state} pull requests`}</h3>
-              {list.data.notice && <p className="small muted">{list.data.notice}</p>}
-              <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}>
-                {filtered && (
-                  <button className="btn sm" onClick={() => apply(setState(DEFAULT_QUERY, state))}>
-                    Clear filters
-                  </button>
-                )}
-                {counts &&
-                  (['open', 'closed', 'merged'] as const)
-                    .filter((s) => s !== state && counts[s] > 0)
-                    .map((s) => (
-                      <button key={s} className="btn sm" onClick={() => apply(setState(query, s))}>
-                        Show {counts[s]} {s}
-                      </button>
-                    ))}
-              </div>
-            </div>
-          )}
-          {items.map((pr, idx) => (
-            <PrRow key={pr.id} pr={pr} density={density} delay={Math.min(idx, 20) * 14} onOpen={() => onOpen(pr.number)} onAuthor={(l, bot) => apply(setQualifier(query, 'author', asAuthor(l, bot)))} />
-          ))}
-          {hasMore && (
-            <div style={{ padding: 12 }}>
-              <button className="btn block" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading…' : 'Load more'}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
       {list.data && items.length > 0 && (
         <div className="small muted pr-foot">
-          Showing {items.length} of {list.data.total.toLocaleString()} · <span className="mono">{query}</span>
+          Showing {items.length} of {list.data.total.toLocaleString()} · <span className="mono">{query}</span> · <kbd>j</kbd>/<kbd>k</kbd> to move, <kbd>Enter</kbd> to open
         </div>
       )}
     </div>
@@ -411,35 +503,76 @@ export function PrList({ repoId, ctx, metadata, onOpen, onCreate }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Rows
+// Lanes and cards
 // ---------------------------------------------------------------------------
 
-const CHECK_PILL: Record<string, [string, string, string]> = {
-  SUCCESS: ['ok', '✓', 'Checks passed'],
-  FAILURE: ['danger', '✕', 'Checks failed'],
-  ERROR: ['danger', '✕', 'Checks errored'],
-  PENDING: ['warn', '●', 'Checks running'],
-  EXPECTED: ['warn', '○', 'Waiting for checks'],
-};
-const REVIEW_PILL: Record<string, [string, string]> = {
-  APPROVED: ['ok', '✓ Approved'],
-  CHANGES_REQUESTED: ['danger', '✕ Changes'],
-  REVIEW_REQUIRED: ['warn', '● Review'],
-};
+type LaneKey = 'yours' | 'blocked' | 'ready' | 'review' | 'draft' | 'merged' | 'closed';
+const LANES: { key: LaneKey; title: string; hint: string }[] = [
+  { key: 'yours', title: 'Your turn', hint: 'your review was requested' },
+  { key: 'blocked', title: 'Needs attention', hint: 'failing checks, conflicts or requested changes' },
+  { key: 'ready', title: 'Ready to ship', hint: 'approved and green' },
+  { key: 'review', title: 'In review', hint: 'waiting on reviewers or checks' },
+  { key: 'draft', title: 'Drafts', hint: 'still being written' },
+  { key: 'merged', title: 'Merged', hint: '' },
+  { key: 'closed', title: 'Closed', hint: 'closed without merging' },
+];
 
-function StateIcon({ pr }: { pr: PrListItem }) {
-  const [cls, icon, title] = pr.state === 'MERGED' ? ['merged', '⇋', 'Merged'] : pr.state === 'CLOSED' ? ['closed', '✕', 'Closed'] : pr.isDraft ? ['draft', '✎', 'Draft'] : ['open', '⇄', 'Open'];
-  return (
-    <span className={`pr-state-icon ${cls}`} title={title}>
-      {icon}
-    </span>
-  );
+const failing = (c: string | null | undefined) => c === 'FAILURE' || c === 'ERROR';
+
+function laneOf(p: PrListItem, me: string | null | undefined): LaneKey {
+  if (p.state === 'MERGED') return 'merged';
+  if (p.state === 'CLOSED') return 'closed';
+  if (p.isDraft) return 'draft';
+  if (me && p.reviewers.some((r) => r.login === me && r.state === 'REQUESTED')) return 'yours';
+  if (p.mergeable === 'CONFLICTING' || failing(p.checks) || p.reviewDecision === 'CHANGES_REQUESTED') return 'blocked';
+  if (p.reviewDecision === 'APPROVED' && !p.checks?.match(/PENDING|EXPECTED/)) return 'ready';
+  return 'review';
 }
 
-function PrRow({ pr, density, delay, onOpen, onAuthor }: { pr: PrListItem; density: Density; delay: number; onOpen: () => void; onAuthor: (login: string, bot: boolean) => void }) {
-  const check = pr.checks ? CHECK_PILL[pr.checks] : null;
-  const review = pr.reviewDecision ? REVIEW_PILL[pr.reviewDecision] : null;
+/** Three signals (checks, review, merge) drawn as a segmented strip. */
+function signals(pr: PrListItem): { key: string; tone: string; label: string }[] {
+  const checks = !pr.checks ? ['idle', 'No checks'] : failing(pr.checks) ? ['danger', 'Checks failing'] : pr.checks === 'SUCCESS' ? ['ok', 'Checks passed'] : ['warn', 'Checks running'];
+  const review =
+    pr.reviewDecision === 'APPROVED' ? ['ok', 'Approved'] : pr.reviewDecision === 'CHANGES_REQUESTED' ? ['danger', 'Changes requested'] : pr.reviewDecision === 'REVIEW_REQUIRED' ? ['warn', 'Review required'] : ['idle', 'No review rule'];
+  const merge =
+    pr.state === 'MERGED' ? ['merged', 'Merged'] : pr.state === 'CLOSED' ? ['idle', 'Closed'] : pr.mergeable === 'CONFLICTING' ? ['danger', 'Conflicts'] : pr.mergeable === 'MERGEABLE' ? ['ok', 'No conflicts'] : ['idle', 'Mergeability unknown'];
+  return [
+    { key: 'checks', tone: checks[0], label: checks[1] },
+    { key: 'review', tone: review[0], label: review[1] },
+    { key: 'merge', tone: merge[0], label: merge[1] },
+  ];
+}
+
+/** Older open pull requests warm up: fresh → aging → stale. */
+function ageTone(pr: PrListItem): string {
+  if (pr.state !== 'OPEN') return '';
+  const days = (Date.now() - new Date(pr.updatedAt).getTime()) / 864e5;
+  return days > 30 ? 'stale' : days > 7 ? 'aging' : 'fresh';
+}
+
+function PrCard({
+  pr,
+  idx,
+  selected,
+  compact,
+  account,
+  delay,
+  onOpen,
+  onAuthor,
+}: {
+  pr: PrListItem;
+  idx: number;
+  selected: boolean;
+  compact: boolean;
+  account: string | null | undefined;
+  delay: number;
+  onOpen: () => void;
+  onAuthor: (login: string, bot: boolean) => void;
+}) {
   const who = pr.author?.login ?? 'ghost';
+  const kind = pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.isDraft ? 'draft' : 'open';
+  const sig = signals(pr);
+  const mine = account && who === account;
   const authorBtn = (
     <a
       className="pr-author"
@@ -452,70 +585,74 @@ function PrRow({ pr, density, delay, onOpen, onAuthor }: { pr: PrListItem; densi
       {who}
     </a>
   );
-
-  if (density === 'compact') {
-    return (
-      <div className="pr-r compact" style={{ animationDelay: `${delay}ms` }} onClick={onOpen}>
-        <StateIcon pr={pr} />
-        <span className="pr-r-title ellipsis">
-          <strong>{pr.title}</strong>
-          <span className="muted small"> #{pr.number}</span>
+  const strip = (
+    <span className="prx-signal" title={sig.map((s) => s.label).join(' · ')}>
+      {sig.map((s) => (
+        <i key={s.key} className={s.tone} />
+      ))}
+    </span>
+  );
+  const faces = pr.reviewers.length > 0 && (
+    <span className="prx-faces" title={pr.reviewers.map((r) => `${r.login}: ${r.state.toLowerCase().replace('_', ' ')}`).join('\n')}>
+      {pr.reviewers.slice(0, 4).map((r) => (
+        <span key={r.login} className={`prx-face ${r.state.toLowerCase()}`}>
+          <Avatar login={r.login} size={20} />
         </span>
-        <span className="pr-r-who small muted ellipsis">
+      ))}
+      {pr.reviewers.length > 4 && <span className="prx-face more">+{pr.reviewers.length - 4}</span>}
+    </span>
+  );
+
+  if (compact) {
+    return (
+      <div className={`prx-card compact ${kind} ${selected ? 'sel' : ''}`} data-pr-idx={idx} style={{ animationDelay: `${delay}ms` }} onClick={onOpen}>
+        <i className="prx-kind" title={kind} />
+        <span className="prx-num mono">#{pr.number}</span>
+        <span className="prx-t ellipsis">{pr.title}</span>
+        <span className="small muted ellipsis prx-who">
           {authorBtn}
           {pr.authorIsBot && <span className="bot-tag">bot</span>}
         </span>
-        <span className="pr-r-col">{check && <span className={`mini-pill ${check[0]}`} title={check[2]}>{check[1]}</span>}</span>
-        <span className="pr-r-col wide">{review && <span className={`mini-pill ${review[0]}`}>{review[1]}</span>}</span>
-        <span className="pr-r-col small muted">{pr.comments > 0 ? `💬 ${pr.comments}` : ''}</span>
-        <span className="pr-r-time small muted">{relTime(pr.updatedAt)}</span>
+        {strip}
+        <span className="small muted prx-cm">{pr.comments > 0 ? `💬 ${pr.comments}` : ''}</span>
+        <span className={`small muted prx-age ${ageTone(pr)}`}>{relTime(pr.updatedAt)}</span>
       </div>
     );
   }
 
   return (
-    <div className="pr-r comfortable" style={{ animationDelay: `${delay}ms` }} onClick={onOpen}>
-      <StateIcon pr={pr} />
-      <div className="pr-r-main">
-        <div className="pr-r-title">
-          <strong>{pr.title}</strong>
-          {pr.labels.map((l) => (
-            <LabelChip key={l.name} label={l} />
-          ))}
+    <div className={`prx-card ${kind} ${selected ? 'sel' : ''} ${mine ? 'mine' : ''}`} data-pr-idx={idx} style={{ animationDelay: `${delay}ms` }} onClick={onOpen}>
+      <i className="prx-kind" title={kind} />
+      <div className="prx-avatar">
+        <Avatar login={who} size={32} />
+      </div>
+      <div className="prx-main">
+        <div className="prx-t">
+          {pr.title}
+          {kind === 'draft' && <span className="prx-tag draft">draft</span>}
+          {pr.state === 'OPEN' && pr.mergeable === 'CONFLICTING' && <span className="prx-tag danger">conflicts</span>}
         </div>
-        <div className="pr-r-meta small muted">
-          <span>#{pr.number}</span>
+        <div className="prx-meta small muted">
+          <span className="mono">#{pr.number}</span>
           <span>
-            opened {relTime(pr.createdAt)} by {authorBtn}
-            {pr.authorIsBot && <span className="bot-tag">bot</span>}
+            {authorBtn}
+            {pr.authorIsBot && <span className="bot-tag">bot</span>} · opened {relTime(pr.createdAt)}
           </span>
-          <span className="pr-r-branches" title={`${pr.headRefName} → ${pr.baseRefName}`}>
-            <span className="branch-pill">{pr.headRefName}</span> → <span className="branch-pill">{pr.baseRefName}</span>
+          <span className="prx-flow" title={`${pr.headRefName} → ${pr.baseRefName}`}>
+            <span className="prx-ref">{pr.headRefName}</span>
+            <span className="prx-arrow">➜</span>
+            <span className="prx-ref base">{pr.baseRefName}</span>
           </span>
-          {pr.state === 'OPEN' && pr.mergeable === 'CONFLICTING' && <span className="text-danger">⚠ conflicts</span>}
         </div>
       </div>
-      <div className="pr-r-side">
-        <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-          {check && (
-            <span className={`mini-pill ${check[0]}`} title={check[2]}>
-              {check[1]} checks
-            </span>
-          )}
-          {review && <span className={`mini-pill ${review[0]}`}>{review[1]}</span>}
-        </div>
-        <div className="row small muted" style={{ gap: 8, justifyContent: 'flex-end' }}>
-          {pr.reviewers.length > 0 && (
-            <span className="face-stack" title={pr.reviewers.map((r) => `${r.login}: ${r.state.toLowerCase().replace('_', ' ')}`).join('\n')}>
-              {pr.reviewers.slice(0, 4).map((r) => (
-                <span key={r.login} className={`face ${r.state === 'APPROVED' ? 'ok' : r.state === 'CHANGES_REQUESTED' ? 'danger' : ''}`}>
-                  <Avatar login={r.login} size={18} />
-                </span>
-              ))}
-            </span>
-          )}
+      <div className="prx-side">
+        {strip}
+        <div className="prx-side-row small muted">
+          {faces}
           {pr.comments > 0 && <span>💬 {pr.comments}</span>}
-          <span>updated {relTime(pr.updatedAt)}</span>
+          <span className={`prx-age ${ageTone(pr)}`} title={`Updated ${new Date(pr.updatedAt).toLocaleString()}`}>
+            {relTime(pr.updatedAt)}
+          </span>
         </div>
       </div>
     </div>
