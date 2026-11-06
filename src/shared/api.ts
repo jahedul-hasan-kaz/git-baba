@@ -2,6 +2,7 @@ import type {
   AuthContext,
   CommitSigningPreference,
   NotificationFeed,
+  WorktreeInfo,
   NotificationPrefs,
   RemoteAuthPreference,
   RepoAccessOverview,
@@ -202,6 +203,13 @@ export interface ApiMap {
   'notify:clear': { req: void; res: NotificationFeed };
   'notify:refresh': { req: void; res: NotificationFeed };
   'notify:setPrefs': { req: Partial<NotificationPrefs>; res: NotificationFeed };
+  'git:worktrees': { req: R; res: WorktreeInfo[] };
+  'git:worktreeAdd': { req: R & { path: string; branch: string; create: boolean; base?: string }; res: WorktreeInfo };
+  'git:worktreeRemove': { req: R & { path: string; force?: boolean; confirmed: true }; res: WorktreeInfo[] };
+  'git:worktreeLock': { req: R & { path: string; lock: boolean; reason?: string }; res: WorktreeInfo[] };
+  'git:worktreePrune': { req: R; res: WorktreeInfo[] };
+  'git:worktreeOpen': { req: R & { path: string }; res: RepoSummary };
+  'git:worktreeReveal': { req: R & { path: string }; res: void };
   'git:checkRemoteChange': { req: R & { name: string; url: string; probe?: boolean }; res: RemoteChangeCheck };
   'repo:accessOverview': { req: R; res: RepoAccessOverview };
   'git:removeRemote': { req: R & { name: string; confirmed: true }; res: RemoteInfo[] };

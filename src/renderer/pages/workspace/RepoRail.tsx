@@ -13,6 +13,7 @@ import { requestMergeStudio } from '../../services/mergeStudio';
 import { requestQuickMerge } from '../../services/quickMerge';
 import { useApp } from '../../state/AppState';
 import type { GraphFocus } from '../GitHistoryPage';
+import { WorktreePanel, type AddRequest } from './WorktreePanel';
 
 const COLORS = ['#5b8cff', '#3ecf8e', '#f5b84a', '#ff6b6b', '#b18cff', '#6cc4ff', '#ff9f6b', '#9fd36b'];
 /** Same stable colour per branch name as the graph and the Merge Studio. */
@@ -100,6 +101,18 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
   const branches = useAsync(() => call('git:branches', { repoId }), [repoId, revision]);
   const stashes = useAsync(() => call('git:stashList', { repoId }), [repoId, revision]);
   const tags = useAsync(() => call('graph:recentTags', { repoId, limit: 100 }), [repoId, revision]);
+  const worktrees = useAsync(() => call('git:worktrees', { repoId }), [repoId, revision]);
+  const { activeRepo } = useApp();
+  const [mode, setMode] = useState<'branches' | 'worktrees'>(() => readPref('gb.ws.railMode', 'branches'));
+  useEffect(() => writePref('gb.ws.railMode', mode), [mode]);
+  const [addWorktree, setAddWorktree] = useState<AddRequest | null>(null);
+  /** Branch → folder name of the other worktree it is checked out in. */
+  const inWorktree = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of worktrees.data ?? []) if (w.branch && !w.current) m.set(w.branch, w.path.replace(/[\/]+$/, '').split(/[\/]/).pop() ?? w.path);
+    return m;
+  }, [worktrees.data]);
+  const worktreeCount = worktrees.data?.length ?? 0;
 
   const [q, setQ] = useState('');
   const query = q.trim().toLowerCase();
@@ -249,6 +262,11 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
           <Hl text={label} q={query} />
         </span>
         {b.current && <span className="wr-head">HEAD</span>}
+        {!isRemote && inWorktree.has(b.name) && (
+          <span className="wr-wt" title={`Checked out in the worktree ${inWorktree.get(b.name)}`} onClick={(e) => { e.stopPropagation(); setMode('worktrees'); }}>
+            🗂
+          </span>
+        )}
         {!isRemote && !pub && <span className="wr-flag" title="Not published — exists only on this computer">local</span>}
         {!!b.ahead && <span className="wr-ab up" title={`${b.ahead} to push`}>↑{b.ahead}</span>}
         {!!b.behind && <span className="wr-ab down" title={`${b.behind} to pull`}>↓{b.behind}</span>}
@@ -337,6 +355,16 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
         <button className="wr-mini" onClick={() => expand('stash')} title={`${stashes.data?.length ?? 0} stashes`}>
           📦<span>{stashes.data?.length ?? 0}</span>
         </button>
+        <button
+          className="wr-mini"
+          onClick={() => {
+            setMode('worktrees');
+            expand();
+          }}
+          title={`${worktreeCount} worktrees`}
+        >
+          🗂<span>{worktreeCount}</span>
+        </button>
         <button className="wr-mini" onClick={() => expand('tags')} title={`${tags.data?.length ?? 0} tags`}>
           🏷<span>{tags.data?.length ?? 0}</span>
         </button>
@@ -354,10 +382,19 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
 
   return (
     <aside className="ws-rail" style={{ width }}>
+      <div className={`wr-mode ${mode}`} role="tablist" aria-label="Sidebar view">
+        <span className="wr-mode-pill" aria-hidden />
+        <button role="tab" aria-selected={mode === 'branches'} className={mode === 'branches' ? 'on' : ''} onClick={() => setMode('branches')} title="Branches, stashes and tags">
+          ⎇ Branches <span className="wr-mode-n">{local.length}</span>
+        </button>
+        <button role="tab" aria-selected={mode === 'worktrees'} className={mode === 'worktrees' ? 'on' : ''} onClick={() => setMode('worktrees')} title="Working folders of this repository">
+          🗂 Worktrees <span className="wr-mode-n">{worktreeCount}</span>
+        </button>
+      </div>
       <div className="wr-top">
         <div className="wr-search">
           <span className="muted">⌕</span>
-          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} placeholder="Filter branches, stashes, tags" spellCheck={false} />
+          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} placeholder={mode === 'worktrees' ? 'Filter worktrees' : 'Filter branches, stashes, tags'} spellCheck={false} />
           {q && (
             <button className="wr-x" onClick={() => setQ('')} title="Clear">
               ✕
@@ -369,6 +406,21 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
         </button>
       </div>
 
+      {mode === 'worktrees' ? (
+        <WorktreePanel
+          repoId={repoId}
+          repoPath={activeRepo?.path ?? ''}
+          repoName={activeRepo?.name ?? 'repo'}
+          worktrees={worktrees.data ?? null}
+          loading={worktrees.loading}
+          branches={branches.data ?? []}
+          query={q}
+          reload={() => void worktrees.reload()}
+          addRequest={addWorktree}
+          clearAddRequest={() => setAddWorktree(null)}
+        />
+      ) : (
+        <>
       {/* Where you are: the current branch, its sync state and the two most common next steps. */}
       <div className="wr-here" style={{ ['--bc' as string]: branchColor(currentName ?? 'HEAD') }}>
         <button className="wr-here-main" onClick={() => current && onFocus({ oid: current.oid, ref: current.name })} title="Show the current commit in the graph">
@@ -495,6 +547,9 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
           ),
         )}
       </div>
+
+        </>
+      )}
 
       {dragging && (
         <div className="wr-drag-hint">
@@ -745,6 +800,17 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
         {isLocal && item('◎', 'Merge Studio with this as target…', () => openStudio(mergeSources.filter((x) => x !== b.name), b.name))}
         <div className="dropdown-sep" />
         {item('＋', 'New branch from here…', () => setNewBranch({ name: '', from: b.name, switchTo: true }))}
+        {isLocal && !isCurrent && !inWorktree.has(b.name) &&
+          item('🗂', 'Open in a new worktree…', () => {
+            setMode('worktrees');
+            setAddWorktree({ branch: b.name });
+          })}
+        {!isLocal && !hasLocal &&
+          item('🗂', `Check out ${short} in a new worktree…`, () => {
+            setMode('worktrees');
+            setAddWorktree({ branch: b.name });
+          })}
+        {isLocal && inWorktree.has(b.name) && item('🗂', `In worktree ${inWorktree.get(b.name)} — show`, () => setMode('worktrees'))}
         {isLocal &&
           item('✎', `Rename…${pub ? ' (published)' : ''}`, () => setRenaming({ branch: b, name: b.name }), {
             disabled: !!pub,

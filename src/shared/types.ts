@@ -1365,3 +1365,27 @@ export interface NotificationFeed {
   /** Desktop notifications supported on this OS. */
   desktopSupported: boolean;
 }
+
+/** One working tree of a repository (`git worktree list`). */
+export interface WorktreeInfo {
+  path: string;
+  /** Checked-out branch, or null when detached. */
+  branch: string | null;
+  head: string;
+  /** The main working tree (the repository folder itself). */
+  main: boolean;
+  /** The worktree this window is showing. */
+  current: boolean;
+  bare: boolean;
+  locked: boolean;
+  lockReason?: string;
+  /** Its folder is gone; `git worktree prune` cleans it up. */
+  prunable: boolean;
+  /** Uncommitted changes (null when it could not be read). */
+  changes: number | null;
+  /** Subject and time of the checked-out commit. */
+  subject?: string;
+  date?: string;
+  /** Already open in Git Baba as a repository. */
+  repoId?: string;
+}
