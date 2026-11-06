@@ -3713,13 +3713,13 @@ button.cd-tile:hover { border-color: var(--accent); background: rgba(91, 140, 25
 /* ---------------- Worktree panel ---------------- */
 .wt { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wt-scroll { overflow-y: auto; padding: 6px 8px 12px; flex: 1; }
-.wt-trunk { position: relative; padding-left: 14px; }
-.wt-trunk::before { content: ""; position: absolute; left: 5px; top: 18px; bottom: 18px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, var(--border-2), color-mix(in srgb, var(--border-2) 30%, transparent)); }
+.wt-trunk { position: relative; padding-left: 24px; }
+.wt-trunk::before { content: ""; position: absolute; left: 7px; top: 20px; bottom: 18px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, var(--border-2), color-mix(in srgb, var(--border-2) 30%, transparent)); }
 .wt-card { position: relative; margin: 0 0 8px; padding: 9px 10px 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-2); display: flex; flex-direction: column; gap: 4px; animation: nb-in 0.3s ease both; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
 .wt-card:hover { border-color: color-mix(in srgb, var(--bc) 55%, var(--border)); transform: translateX(1px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16); }
 .wt-card.here { border-color: color-mix(in srgb, var(--bc) 60%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--bc) 10%, var(--bg-2)), var(--bg-2) 70%); }
 .wt-card.gone { opacity: 0.7; border-style: dashed; }
-.wt-node { position: absolute; left: -14px; top: 14px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--bc); }
+.wt-node { position: absolute; left: -22px; top: 14px; box-sizing: border-box; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--bc); }
 .wt-card.here .wt-node { background: var(--bc); box-shadow: 0 0 0 4px color-mix(in srgb, var(--bc) 25%, transparent); animation: wt-pulse 2.4s ease-in-out infinite; }
 .wt-card.main .wt-node { border-radius: 3px; }
 .wt-card.gone .wt-node { border-style: dashed; border-color: var(--warn); }
