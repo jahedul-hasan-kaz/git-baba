@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { fitSubmenu, markScroll, useMenuFit } from '../../components/menuFit';
 import type { GraphCommit } from '../../../shared/types';
 import { relative } from '../../components/FileDiffList';
 import { requestQuickMerge } from '../../services/quickMerge';
@@ -37,7 +39,7 @@ export function CommitMenu({ x, y, commit, current, headHash, selected, onAction
   const [active, setActive] = useState(-1);
   const [subOpen, setSubOpen] = useState<string | null>(null);
   const [subActive, setSubActive] = useState(0);
-  const [flipSub, setFlipSub] = useState(false);
+  const subRef = useRef<HTMLDivElement>(null);
   const isHead = commit.hash === headHash;
   const tags = commit.refs.filter((r) => r.startsWith('tag: '));
   const on = current ?? 'HEAD';
@@ -116,19 +118,18 @@ export function CommitMenu({ x, y, commit, current, headHash, selected, onAction
   const items = entries.filter((e): e is Item => 'id' in e);
   const subOf = (id: string | null) => items.find((i) => i.id === id)?.sub ?? null;
 
-  // Keep the menu inside the window.
+  // Keep the menu, and any submenu, entirely inside the window (scrolling when the window is short).
+  useMenuFit(ref, x, y);
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    el.style.left = `${Math.max(8, Math.min(x, window.innerWidth - r.width - 8))}px`;
-    el.style.top = `${Math.max(8, Math.min(y, window.innerHeight - r.height - 8))}px`;
-    setFlipSub(r.right + 240 > window.innerWidth);
-  }, [x, y]);
+    const menu = ref.current;
+    const sub = subRef.current;
+    const row = menu?.querySelector<HTMLElement>('.cm-item.open');
+    if (menu && sub && row) fitSubmenu(sub, row, menu);
+  }, [subOpen]);
 
   useEffect(() => {
     ref.current?.focus();
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !subRef.current?.contains(e.target as Node) && onClose();
     const blur = () => onClose();
     window.addEventListener('mousedown', close);
     window.addEventListener('blur', blur);
@@ -182,7 +183,19 @@ export function CommitMenu({ x, y, commit, current, headHash, selected, onAction
 
   let idx = -1;
   return (
-    <div ref={ref} className="cm" tabIndex={-1} onKeyDown={onKey} onContextMenu={(e) => e.preventDefault()} style={{ left: x, top: y }} role="menu">
+    <div
+      ref={ref}
+      className="cm"
+      tabIndex={-1}
+      onKeyDown={onKey}
+      onContextMenu={(e) => e.preventDefault()}
+      onScroll={(e) => {
+        markScroll(e.currentTarget);
+        setSubOpen(null);
+      }}
+      style={{ left: x, top: y }}
+      role="menu"
+    >
       <div className="cm-head">
         <span className="cm-avatar" style={{ background: authorColor(commit.email || commit.author) }}>
           {initials(commit.author)}
@@ -246,8 +259,18 @@ export function CommitMenu({ x, y, commit, current, headHash, selected, onAction
             <span className="grow ellipsis">{e.label}</span>
             {e.hint && <kbd>{e.hint}</kbd>}
             {e.sub && <span className="cm-chev">▸</span>}
-            {sub && (
-              <div className={`cm-sub ${flipSub ? 'flip' : ''}`} onClick={(ev) => ev.stopPropagation()}>
+            {sub &&
+              createPortal(
+              <div
+                ref={subRef}
+                className="cm-sub"
+                role="menu"
+                onClick={(ev) => ev.stopPropagation()}
+                onMouseDown={(ev) => ev.stopPropagation()}
+                onContextMenu={(ev) => ev.preventDefault()}
+                onScroll={(ev) => markScroll(ev.currentTarget)}
+                onKeyDown={onKey}
+              >
                 {e.sub!.map((s, k) => (
                   <div
                     key={s.id}
@@ -263,7 +286,8 @@ export function CommitMenu({ x, y, commit, current, headHash, selected, onAction
                     {s.hint && <kbd>{s.hint}</kbd>}
                   </div>
                 ))}
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         );

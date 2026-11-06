@@ -3843,3 +3843,10 @@ button.repo-wt-count.locked { cursor: default; }
 .wt-row:hover .wt-row-meta, .wt-row:focus-within .wt-row-meta { display: none; }
 .repo-wts { max-height: 300px; overflow-y: auto; scrollbar-width: thin; }
 button.link { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+
+/* ---------------- Context menus always fit the window ---------------- */
+.cm, .cm-sub, .ctx-menu { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.cm-sub { position: fixed; z-index: 1001; }
+.cm.can-down, .cm-sub.can-down, .ctx-menu.can-down { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+.cm.can-up, .cm-sub.can-up, .ctx-menu.can-up { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
+.cm.can-up.can-down, .cm-sub.can-up.can-down, .ctx-menu.can-up.can-down { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); }

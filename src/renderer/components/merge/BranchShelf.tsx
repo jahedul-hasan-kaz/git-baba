@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { BranchInfo } from '../../../shared/types';
 import { branchColor } from '../BranchPicker';
 import { relative } from '../FileDiffList';
+import { fitMenu, markScroll } from '../menuFit';
 
 type Tab = 'all' | 'recent' | 'local' | 'remote';
 
@@ -46,7 +47,8 @@ export function BranchShelf({ branches, used, target, disabled, onAdd, onTarget,
     if (!menu) return;
     const close = (e: MouseEvent) => !menuRef.current?.contains(e.target as Node) && setMenu(null);
     const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), setMenu(null));
-    const off = () => setMenu(null);
+    // Scrolling the page closes the menu; scrolling inside a long menu does not.
+    const off = (e: Event) => !menuRef.current?.contains(e.target as Node) && setMenu(null);
     window.addEventListener('mousedown', close);
     window.addEventListener('keydown', key, true);
     document.addEventListener('scroll', off, true);
@@ -59,8 +61,7 @@ export function BranchShelf({ branches, used, target, disabled, onAdd, onTarget,
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el || !menu) return;
-    el.style.left = `${Math.max(8, Math.min(menu.x, window.innerWidth - el.offsetWidth - 8))}px`;
-    el.style.top = `${Math.max(8, Math.min(menu.y, window.innerHeight - el.offsetHeight - 8))}px`;
+    fitMenu(el, menu.x, menu.y);
   }, [menu]);
   const query = q.trim().toLowerCase();
   const now = Date.now();
@@ -200,7 +201,7 @@ export function BranchShelf({ branches, used, target, disabled, onAdd, onTarget,
       </div>
       {menu &&
         createPortal(
-          <div ref={menuRef} className="cm shelf-menu" style={{ left: menu.x, top: menu.y }} onContextMenu={(e) => e.preventDefault()}>
+          <div ref={menuRef} className="cm shelf-menu" style={{ left: menu.x, top: menu.y }} onScroll={(e) => markScroll(e.currentTarget)} onContextMenu={(e) => e.preventDefault()}>
             <div className="cm-head">
               <span className="shelf-dot" style={{ ['--bc' as string]: branchColor(menu.b.name) }} />
               <div style={{ minWidth: 0 }}>

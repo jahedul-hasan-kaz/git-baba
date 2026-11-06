@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import type { BranchInfo, RepoStatus, StashEntry, TagInfo } from '../../../shared/types';
 import { BranchPicker, toPickerItems } from '../../components/BranchPicker';
 import { relative } from '../../components/FileDiffList';
+import { fitMenu, markScroll } from '../../components/menuFit';
 import { Modal } from '../../components/Modal';
 import { MultiMergeCard } from '../../components/MultiMergeCard';
 import { BranchChangesDialog } from '../../dialogs/BranchChangesDialog';
@@ -961,24 +962,23 @@ function RailMenu({ menu, onClose, children }: { menu: Menu; onClose: () => void
     window.addEventListener('keydown', onKey);
     window.addEventListener('blur', onClose);
     window.addEventListener('resize', onClose);
-    document.addEventListener('scroll', onClose, true);
+    const onScroll = (e: Event) => !ref.current?.contains(e.target as Node) && onClose();
+    document.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('mousedown', close);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('blur', onClose);
       window.removeEventListener('resize', onClose);
-      document.removeEventListener('scroll', onClose, true);
+      document.removeEventListener('scroll', onScroll, true);
     };
   }, [onClose]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    el.style.left = `${Math.max(8, Math.min(menu.x, window.innerWidth - r.width - 8))}px`;
-    el.style.top = `${Math.max(8, Math.min(menu.y, window.innerHeight - r.height - 8))}px`;
+    fitMenu(el, menu.x, menu.y);
   }, [menu]);
   return (
-    <div ref={ref} className="ctx-menu" style={{ left: menu.x, top: menu.y }} onContextMenu={(e) => e.preventDefault()}>
+    <div ref={ref} className="ctx-menu" style={{ left: menu.x, top: menu.y }} onScroll={(e) => markScroll(e.currentTarget)} onContextMenu={(e) => e.preventDefault()}>
       {children}
     </div>
   );

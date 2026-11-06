@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RepoSummary } from '../../shared/types';
 import { CloneDialog } from '../dialogs/CloneDialog';
 import { CreateRepoWizard } from '../dialogs/CreateRepoWizard';
 import { ContributorsDialog, DuplicateRepoDialog, hueOf, LastCommitDialog, RemoveRepoDialog } from '../dialogs/RepoActionDialogs';
 import { call } from '../services/api';
 import { useApp } from '../state/AppState';
+import { fitMenu, markScroll } from './menuFit';
 import { WorktreeTwig } from './WorktreeTwig';
 
 /** "jahedul-hasan-kaz, inride" / "jahedul-hasan-kaz, personal" / "local repository". */
@@ -171,13 +172,9 @@ export function Sidebar() {
   }, []);
 
   // Keep the context menu inside the window.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ctxRef.current;
-    if (!el || !ctxMenu) return;
-    const r = el.getBoundingClientRect();
-    const x = Math.min(ctxMenu.x, window.innerWidth - r.width - 8);
-    const y = Math.min(ctxMenu.y, window.innerHeight - r.height - 8);
-    if (x !== ctxMenu.x || y !== ctxMenu.y) setCtxMenu({ ...ctxMenu, x, y });
+    if (el && ctxMenu) fitMenu(el, ctxMenu.x, ctxMenu.y);
   }, [ctxMenu]);
 
   const toggleGroup = (key: string) =>
@@ -452,7 +449,7 @@ export function Sidebar() {
       )}
 
       {ctxMenu && (
-        <div ref={ctxRef} className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }} onContextMenu={(e) => e.preventDefault()}>
+        <div ref={ctxRef} className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }} onScroll={(e) => markScroll(e.currentTarget)} onContextMenu={(e) => e.preventDefault()}>
           <div className="ctx-head">
             <strong className="ellipsis">{ctxMenu.repo.name}</strong>
             <span className="small muted ellipsis">{repoSubtitle(ctxMenu.repo)}</span>
