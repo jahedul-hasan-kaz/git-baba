@@ -3850,3 +3850,11 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .cm.can-down, .cm-sub.can-down, .ctx-menu.can-down { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .cm.can-up, .cm-sub.can-up, .ctx-menu.can-up { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
 .cm.can-up.can-down, .cm-sub.can-up.can-down, .ctx-menu.can-up.can-down { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
+/* Clean slate: just the state and the one sync action. */
+.cs-card.cs-solo { width: 100%; max-width: 520px; margin: 0 auto; }
+.cs-solo .cs-sync-row { align-items: center; }
+.cs-solo .btn { flex-shrink: 0; }
+.cs.compact:has(.cs-solo) { display: flex; flex-direction: column; justify-content: center; }
+.cs.compact .cs-solo .cs-sync-row { flex-wrap: wrap; }
+.cs.compact .cs-solo .btn { margin-left: auto; }
