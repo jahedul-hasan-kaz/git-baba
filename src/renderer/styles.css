@@ -3800,3 +3800,46 @@ button.repo-wt-count.locked { cursor: default; }
 .wtw-more-dirty { color: var(--warn); font-size: 10.5px; }
 .wtw-filter { height: 26px; font-size: 11.5px; padding: 3px 8px; margin-bottom: 3px; }
 .wtw-none { font-size: 11px; color: var(--text-3); padding: 3px 8px; }
+
+/* ---------------- Worktree panel at scale ---------------- */
+.wt-bar { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+.wt-facets { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.wt-facets::-webkit-scrollbar { display: none; }
+.wt-facet { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-2); font: inherit; font-size: 11px; cursor: pointer; transition: all 0.12s; }
+.wt-facet:hover { color: var(--text); border-color: var(--border-2); }
+.wt-facet.on { color: var(--text); background: var(--bg-3); border-color: var(--accent); }
+.wt-facet.changed.on { border-color: var(--warn); }
+.wt-facet.missing.on { border-color: var(--danger); }
+.wt-facet-n { font-size: 10px; opacity: 0.75; }
+.wt-density { display: inline-flex; flex-shrink: 0; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.wt-density button { border: 0; background: transparent; color: var(--text-3); font-size: 12px; width: 24px; height: 22px; cursor: pointer; }
+.wt-density button.on { background: var(--bg-3); color: var(--text); }
+.wt-sep { position: relative; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin: 4px 0 6px; }
+.wt-group { position: relative; margin-bottom: 4px; }
+.wt-group-head { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer; text-align: left; }
+.wt-group-head::before { content: ""; position: absolute; left: -13px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 2px; background: var(--bg); border: 2px solid var(--border-2); box-sizing: border-box; }
+.wt-group-head:hover { background: var(--bg-3); color: var(--text); }
+.wt-group-head .chev { font-size: 9px; transition: transform 0.15s; display: inline-block; }
+.wt-group-head .chev.open { transform: rotate(90deg); }
+.wt-group-name { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; flex: 1; min-width: 0; }
+.wt-group-dirty { color: var(--warn); font-size: 10.5px; }
+.wt-group-n { font-size: 10px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--text-2) 14%, transparent); }
+.wt-group-body { padding-left: 4px; }
+.wt-row { position: relative; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 8px; margin-bottom: 2px; border-radius: 7px; border: 1px solid transparent; font-size: 12px; cursor: default; outline: none; animation: nb-in 0.2s ease both; transition: background 0.12s, border-color 0.12s; }
+.wt-row:hover, .wt-row:focus-visible, .wt-row:focus-within { background: var(--bg-2); border-color: color-mix(in srgb, var(--bc) 45%, var(--border)); }
+.wt-row.gone { opacity: 0.65; }
+.wt-row-node { position: absolute; left: -13px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--bg); border: 2px solid var(--bc); box-sizing: border-box; }
+.wt-row.gone .wt-row-node { border-style: dashed; border-color: var(--warn); }
+.wt-row-name { flex: 1; min-width: 0; font-family: var(--mono, ui-monospace, monospace); }
+.wt-row-prefix { color: var(--text-3); }
+.wt-row-leaf { color: var(--text); font-weight: 600; }
+.wt-row-name mark { background: color-mix(in srgb, var(--warn) 35%, transparent); color: inherit; border-radius: 2px; }
+.wt-row-lock { font-size: 10px; }
+.wt-row-meta { font-size: 11px; white-space: nowrap; }
+.wt-row-age { color: var(--text-3); }
+.wt-row-actions { display: none; gap: 3px; }
+.wt-row-actions .wt-act { height: 22px; min-width: 22px; padding: 0 5px; font-size: 11px; }
+.wt-row:hover .wt-row-actions, .wt-row:focus-within .wt-row-actions { display: inline-flex; }
+.wt-row:hover .wt-row-meta, .wt-row:focus-within .wt-row-meta { display: none; }
+.repo-wts { max-height: 300px; overflow-y: auto; scrollbar-width: thin; }
+button.link { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }

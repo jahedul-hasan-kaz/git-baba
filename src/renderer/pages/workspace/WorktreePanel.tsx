@@ -22,6 +22,31 @@ const parentOf = (p: string) => {
 };
 const slug = (b: string) => b.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
 
+type Facet = 'all' | 'changed' | 'locked' | 'missing';
+type Density = 'auto' | 'cards' | 'rows';
+/** From this many worktrees the panel switches to rows and groups by branch prefix (unless the user chose). */
+const DENSE_FROM = 6;
+const DENSITY_KEY = 'gb.wt.density';
+const loadJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const saveJson = (key: string, v: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {
+    // Per-viewer convenience only.
+  }
+};
+/** "feature/payments/x" → "feature"; no prefix → "other"; detached → "detached". */
+const groupOf = (w: WorktreeInfo) => (!w.branch ? 'detached' : w.branch.includes('/') ? w.branch.slice(0, w.branch.indexOf('/')) : 'other');
+const matchesFacet = (w: WorktreeInfo, f: Facet) =>
+  f === 'all' || (f === 'changed' && (w.changes ?? 0) > 0) || (f === 'locked' && w.locked) || (f === 'missing' && w.prunable);
+
 export interface AddRequest {
   branch?: string;
   create?: boolean;
@@ -59,12 +84,53 @@ export function WorktreePanel({ repoId, repoPath, repoName, worktrees, loading, 
     }
   }, [addRequest, clearAddRequest]);
 
-  const list = useMemo(() => {
-    const all = worktrees ?? [];
-    const q = query.trim().toLowerCase();
-    return q ? all.filter((w) => `${w.path} ${w.branch ?? ''} ${w.subject ?? ''}`.toLowerCase().includes(q)) : all;
-  }, [worktrees, query]);
-  const stale = (worktrees ?? []).filter((w) => w.prunable).length;
+  const [facet, setFacet] = useState<Facet>('all');
+  const [density, setDensityState] = useState<Density>(() => loadJson<Density>(DENSITY_KEY, 'auto'));
+  const setDensity = (d: Density) => {
+    setDensityState(d);
+    saveJson(DENSITY_KEY, d);
+  };
+  const groupsKey = `gb.wt.folded.${repoId}`;
+  const [folded, setFolded] = useState<string[]>(() => loadJson<string[]>(groupsKey, []));
+  useEffect(() => setFolded(loadJson<string[]>(groupsKey, [])), [groupsKey]);
+  const toggleGroup = (g: string) =>
+    setFolded((prev) => {
+      const next = prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g];
+      saveJson(groupsKey, next);
+      return next;
+    });
+
+  const all = worktrees ?? [];
+  const q = query.trim().toLowerCase();
+  const searched = useMemo(() => (q ? all.filter((w) => `${w.path} ${w.branch ?? ''} ${w.subject ?? ''}`.toLowerCase().includes(q)) : all), [all, q]);
+  // The main folder and the one this window shows stay on top as cards; the rest follow the filter.
+  const pinned = searched.filter((w) => w.main || w.current);
+  const rest = searched.filter((w) => !w.main && !w.current && matchesFacet(w, facet));
+  const rows = density === 'rows' || (density === 'auto' && all.length > DENSE_FROM);
+  const counts = {
+    all: all.length,
+    changed: all.filter((w) => (w.changes ?? 0) > 0).length,
+    locked: all.filter((w) => w.locked).length,
+    missing: all.filter((w) => w.prunable).length,
+  };
+  const stale = counts.missing;
+  const grouped = useMemo(() => {
+    const map = new Map<string, WorktreeInfo[]>();
+    for (const w of [...rest].sort((a, b) => (a.branch ?? '').localeCompare(b.branch ?? ''))) {
+      const g = groupOf(w);
+      map.set(g, [...(map.get(g) ?? []), w]);
+    }
+    // A prefix with a single worktree is not worth a header: it joins the ungrouped list.
+    for (const [g, items] of [...map.entries()]) {
+      if (items.length < 2 && g !== 'other') {
+        map.delete(g);
+        map.set('other', [...(map.get('other') ?? []), ...items].sort((a, b) => (a.branch ?? '').localeCompare(b.branch ?? '')));
+      }
+    }
+    const rank = (g: string) => (g === 'other' ? 1 : g === 'detached' ? 2 : 0);
+    return [...map.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+  }, [rest]);
+  const useGroups = rows && rest.length > DENSE_FROM && grouped.length > 1;
 
   const run = async (key: string, fn: () => Promise<unknown>, ok?: string) => {
     setBusy(key);
@@ -87,28 +153,76 @@ export function WorktreePanel({ repoId, repoPath, repoName, worktrees, loading, 
       bump();
     });
 
+  const handlers = (w: WorktreeInfo) => ({
+    onOpen: () => void open(w),
+    onReveal: () => void run(`rev:${w.path}`, () => call('git:worktreeReveal', { repoId, path: w.path })),
+    onLock: () => void run(`lock:${w.path}`, () => call('git:worktreeLock', { repoId, path: w.path, lock: !w.locked }), w.locked ? 'Worktree unlocked' : 'Worktree locked'),
+    onRemove: () => setRemoving(w),
+    onCopy: () => void call('app:copyText', { text: w.path }).then(() => toast('Folder path copied')),
+  });
+  const card = (w: WorktreeInfo, i: number) => <WorktreeCard key={w.path} w={w} delay={i} busy={busy} {...handlers(w)} />;
+  const row = (w: WorktreeInfo, i: number, grouped: boolean) => <WorktreeRow key={w.path} w={w} delay={i} busy={busy} grouped={grouped} q={q} {...handlers(w)} />;
+
   return (
     <div className="wt">
       <div className="wt-scroll">
         {loading && !worktrees ? (
           <div className="wr-empty mm-shimmer">Reading worktrees…</div>
         ) : (
-          <div className="wt-trunk">
-            {list.map((w, i) => (
-              <WorktreeCard
-                key={w.path}
-                w={w}
-                delay={i}
-                busy={busy}
-                onOpen={() => void open(w)}
-                onReveal={() => void run(`rev:${w.path}`, () => call('git:worktreeReveal', { repoId, path: w.path }))}
-                onLock={() => void run(`lock:${w.path}`, () => call('git:worktreeLock', { repoId, path: w.path, lock: !w.locked }), w.locked ? 'Worktree unlocked' : 'Worktree locked')}
-                onRemove={() => setRemoving(w)}
-                onCopy={() => void call('app:copyText', { text: w.path }).then(() => toast('Folder path copied'))}
-              />
-            ))}
-            {list.length === 0 && <div className="wr-empty">No match</div>}
-          </div>
+          <>
+            {all.length > 2 && (
+              <div className="wt-bar">
+                <div className="wt-facets" role="tablist" aria-label="Show worktrees">
+                  {(['all', 'changed', 'locked', 'missing'] as Facet[])
+                    .filter((f) => f === 'all' || counts[f] > 0 || facet === f)
+                    .map((f) => (
+                      <button key={f} role="tab" aria-selected={facet === f} className={`wt-facet ${f} ${facet === f ? 'on' : ''}`} onClick={() => setFacet(f)}>
+                        {f === 'all' ? 'All' : f === 'changed' ? '✎ Changed' : f === 'locked' ? '🔒 Locked' : '⚠ Missing'}
+                        <span className="wt-facet-n">{counts[f]}</span>
+                      </button>
+                    ))}
+                </div>
+                <div className="wt-density" role="group" aria-label="Layout">
+                  <button className={!rows ? 'on' : ''} onClick={() => setDensity('cards')} title="Cards">
+                    ▤
+                  </button>
+                  <button className={rows ? 'on' : ''} onClick={() => setDensity('rows')} title="Compact rows">
+                    ☰
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="wt-trunk">
+              {pinned.map((w, i) => card(w, i))}
+              {rest.length > 0 && pinned.length > 0 && rows && <div className="wt-sep">{rest.length} more worktree{rest.length === 1 ? '' : 's'}</div>}
+              {useGroups
+                ? grouped.map(([g, items]) => {
+                    const isFolded = folded.includes(g) && !q;
+                    const dirty = items.filter((w) => (w.changes ?? 0) > 0).length;
+                    return (
+                      <div key={g} className={`wt-group ${isFolded ? 'folded' : ''}`}>
+                        <button className="wt-group-head" onClick={() => toggleGroup(g)} aria-expanded={!isFolded}>
+                          <span className={`chev ${isFolded ? '' : 'open'}`}>▸</span>
+                          <span className="wt-group-name">{g === 'other' ? (grouped.length > 1 ? 'others' : 'worktrees') : g === 'detached' ? 'detached' : `${g}/`}</span>
+                          {dirty > 0 && <span className="wt-group-dirty" title={`${dirty} with uncommitted changes`}>✎ {dirty}</span>}
+                          <span className="wt-group-n">{items.length}</span>
+                        </button>
+                        {!isFolded && <div className="wt-group-body">{items.map((w, i) => row(w, i, g !== 'other'))}</div>}
+                      </div>
+                    );
+                  })
+                : rest.map((w, i) => (rows ? row(w, i, false) : card(w, i + pinned.length)))}
+              {searched.length === 0 && <div className="wr-empty">No worktree matches “{query.trim()}”</div>}
+              {searched.length > 0 && rest.length === 0 && facet !== 'all' && (
+                <div className="wr-empty">
+                  No {facet} worktrees ·{' '}
+                  <button className="link" onClick={() => setFacet('all')}>
+                    show all
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         {worktrees && worktrees.length <= 1 && !query && (
@@ -193,6 +307,83 @@ export function WorktreePanel({ repoId, repoPath, repoName, worktrees, loading, 
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** One worktree as a dense row: the branch leaf in bold, state at a glance, actions on hover or focus. */
+function WorktreeRow(props: { w: WorktreeInfo; delay: number; busy: string | null; grouped: boolean; q: string; onOpen: () => void; onReveal: () => void; onLock: () => void; onRemove: () => void; onCopy: () => void }) {
+  const { w, delay, busy, grouped, q, onOpen, onReveal, onLock, onRemove, onCopy } = props;
+  const color = branchColor(w.branch ?? 'HEAD');
+  const name = w.branch ?? `detached @ ${w.head.slice(0, 7)}`;
+  const cut = grouped && w.branch ? w.branch.indexOf('/') + 1 : name.lastIndexOf('/') + 1;
+  const head = grouped ? '' : name.slice(0, cut);
+  const leaf = name.slice(cut);
+  const mark = (t: string) => {
+    const i = q ? t.toLowerCase().indexOf(q) : -1;
+    return i < 0 ? t : (
+      <>
+        {t.slice(0, i)}
+        <mark>{t.slice(i, i + q.length)}</mark>
+        {t.slice(i + q.length)}
+      </>
+    );
+  };
+  const canOpen = !w.prunable;
+  return (
+    <div
+      className={`wt-row ${w.prunable ? 'gone' : ''}`}
+      style={{ ['--bc' as string]: color, animationDelay: `${Math.min(delay, 10) * 18}ms` }}
+      tabIndex={0}
+      onDoubleClick={canOpen ? onOpen : undefined}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && canOpen) onOpen();
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const rows = [...document.querySelectorAll<HTMLElement>('.wt-row')];
+          rows[rows.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+        }
+      }}
+      title={`${name}\n${w.path}${w.subject ? `\n${w.subject}` : ''}${w.date ? ` · ${relative(w.date)}` : ''}\nDouble-click or Enter to open`}
+    >
+      <span className="wt-row-node" aria-hidden />
+      <span className="wt-row-name ellipsis">
+        {head && <span className="wt-row-prefix">{mark(head)}</span>}
+        <span className="wt-row-leaf">{mark(leaf)}</span>
+      </span>
+      {w.locked && <span className="wt-row-lock" title={w.lockReason ? `Locked: ${w.lockReason}` : 'Locked'}>🔒</span>}
+      <span className="wt-row-meta">
+        {w.prunable ? (
+          <span className="wt-state gone">missing</span>
+        ) : (w.changes ?? 0) > 0 ? (
+          <span className="wt-state dirty">✎ {w.changes}</span>
+        ) : (
+          <span className="wt-row-age">{w.date ? relative(w.date).replace(/ ago$/, '') : ''}</span>
+        )}
+      </span>
+      <span className="wt-row-actions">
+        {canOpen && (
+          <button className="wt-act primary" disabled={busy === `open:${w.path}`} onClick={onOpen} title={w.repoId ? 'Switch to this worktree' : 'Open this worktree in Git Baba'}>
+            ↗
+          </button>
+        )}
+        {canOpen && (
+          <button className="wt-act" onClick={onReveal} title="Open the folder">
+            📂
+          </button>
+        )}
+        <button className="wt-act" onClick={onCopy} title="Copy folder path">
+          ⧉
+        </button>
+        {canOpen && (
+          <button className="wt-act" disabled={busy === `lock:${w.path}`} onClick={onLock} title={w.locked ? 'Unlock' : 'Lock (protect from removal)'}>
+            {w.locked ? '🔓' : '🔒'}
+          </button>
+        )}
+        <button className="wt-act danger" disabled={w.locked || busy === `rm:${w.path}`} onClick={onRemove} title={w.locked ? 'Unlock it to remove' : w.prunable ? 'Forget this missing worktree' : 'Remove this worktree'}>
+          ✕
+        </button>
+      </span>
     </div>
   );
 }

@@ -67,7 +67,7 @@ function loadCollapsed(): Set<string> {
   }
 }
 
-const WT_OPEN_KEY = 'gitbaba.sidebar.worktreesOpen';
+const WT_OPEN_KEY = 'gitbaba.sidebar.worktreeFold';
 
 type RepoDialog = { kind: 'duplicate' | 'contributors' | 'lastCommit' | 'remove'; repo: RepoSummary };
 
@@ -77,21 +77,21 @@ export function Sidebar() {
   const [dialog, setDialog] = useState<'create' | 'clone' | null>(null);
   const [menu, setMenu] = useState(false);
   const [query, setQuery] = useState('');
-  // Repositories whose worktree list the user unfolded by hand (it also unfolds while one of them is open).
-  const [wtOpen, setWtOpen] = useState<Set<string>>(() => {
+  // Per repository, whether its worktree list was unfolded or folded by hand. Without a choice the list
+  // follows the selection: unfolded while the repository or one of its worktrees is open.
+  const [wtFold, setWtFold] = useState<Record<string, boolean>>(() => {
     try {
-      return new Set(JSON.parse(localStorage.getItem(WT_OPEN_KEY) ?? '[]') as string[]);
+      const v = JSON.parse(localStorage.getItem(WT_OPEN_KEY) ?? '{}') as unknown;
+      return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, boolean>) : {};
     } catch {
-      return new Set();
+      return {};
     }
   });
-  const toggleWt = (id: string) =>
-    setWtOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  const setFold = (id: string, open: boolean) =>
+    setWtFold((prev) => {
+      const next = { ...prev, [id]: open };
       try {
-        localStorage.setItem(WT_OPEN_KEY, JSON.stringify([...next]));
+        localStorage.setItem(WT_OPEN_KEY, JSON.stringify(next));
       } catch {
         // Per-viewer convenience only.
       }
@@ -386,7 +386,7 @@ export function Sidebar() {
                     const inWorktree = family && r.id !== activeRepoId;
                     const q = query.trim().toLowerCase();
                     const wtHit = !!q && wts.some((w) => `${w.branch ?? ''} ${w.name}`.toLowerCase().includes(q));
-                    const unfolded = wts.length > 0 && (family || wtOpen.has(r.id) || wtHit);
+                    const unfolded = wts.length > 0 && (wtHit || (wtFold[r.id] ?? family));
                     const dirty = wts.reduce((n, w) => n + (w.changeCount > 0 ? 1 : 0), 0);
                     return (
                     <div key={r.id} className={`repo-fam ${unfolded ? 'open' : ''} ${family ? 'here' : ''}`}>
@@ -408,17 +408,19 @@ export function Sidebar() {
                         {r.favorite && <span className="repo-star" title="Favorite">★</span>}
                         {wts.length > 0 && (
                           <button
-                            className={`repo-wt-count ${unfolded ? 'on' : ''} ${family ? 'locked' : ''}`}
+                            className={`repo-wt-count ${unfolded ? 'on' : ''}`}
                             aria-expanded={unfolded}
+                            disabled={wtHit}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (!family) toggleWt(r.id);
+                              setFold(r.id, !unfolded);
                             }}
-                            title={family ? `${wts.length} worktree(s) open in Git Baba` : `${unfolded ? 'Hide' : 'Show'} ${wts.length} worktree(s)${dirty ? ` — ${dirty} with uncommitted changes` : ''}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            title={`${unfolded ? 'Fold' : 'Unfold'} ${wts.length} worktree(s)${dirty ? ` — ${dirty} with uncommitted changes` : ''}`}
                           >
                             🗂 {wts.length}
                             {dirty > 0 && !unfolded && <span className="repo-wt-dirty" />}
-                            {!family && <span className={`repo-wt-chev ${unfolded ? 'open' : ''}`}>▸</span>}
+                            <span className={`repo-wt-chev ${unfolded ? 'open' : ''}`}>▸</span>
                           </button>
                         )}
                       </div>
