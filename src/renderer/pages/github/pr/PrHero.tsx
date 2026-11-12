@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GhRepoContext, PrDetails } from '../../../../shared/github';
-import { Avatar, relTime } from '../../../components/github/common';
+import { Avatar } from '../../../components/github/common';
 import { ConfirmDialog } from '../../../dialogs/ConfirmDialog';
 import { call, toFriendly } from '../../../services/api';
 import { useApp } from '../../../state/AppState';
@@ -87,44 +87,26 @@ export function PrHero({ repoId, pr, ctx, onRefresh, onShowMerge, onBack }: Prop
 
   return (
     <div className="pr-hero fade-in">
-      <div className="row" style={{ gap: 8, marginBottom: 6 }}>
-        <button className="btn sm ghost" onClick={onBack}>
-          ← Pull requests
-        </button>
-        <span className="spacer" />
-        <div className="gh-menu" ref={menuBox}>
-          <button className="btn sm" onClick={() => setMenu((m) => !m)} title="Run actions with your GitHub CLI login">
-            ⌨ GitHub CLI ▾
+      <header className="run-top">
+        <nav className="prc-crumbs" aria-label="Breadcrumb">
+          <button className="prc-crumb back" onClick={onBack} title="Back to pull requests">
+            <span className="prc-crumb-ico">⇄</span> Pull requests
           </button>
-          {menu && (
-            <div className="gh-menu-list pop-in" onClick={() => setMenu(false)}>
-              <div className="gh-menu-title">Runs gh with your own login</div>
-              <button onClick={() => setConfirm('checkout')}>⎇ Check out this pull request locally</button>
-              {pr.state === 'OPEN' && pr.isDraft && <button onClick={() => setConfirm('ready')}>✓ Mark ready for review</button>}
-              {pr.state === 'OPEN' && !pr.isDraft && <button onClick={() => setConfirm('draft')}>✎ Convert to draft</button>}
-              {pr.state === 'OPEN' && <button onClick={() => setConfirm('close')}>⊘ Close pull request</button>}
-              {pr.state === 'CLOSED' && <button onClick={() => setConfirm('reopen')}>↺ Reopen pull request</button>}
-              <div className="gh-menu-sep" />
-              <div className="gh-menu-title">Copy a command</div>
-              <button onClick={() => copy(`gh pr checkout ${pr.number}`, 'Command')}>
-                <code>gh pr checkout {pr.number}</code>
-              </button>
-              <button onClick={() => copy(`gh pr diff ${pr.number}`, 'Command')}>
-                <code>gh pr diff {pr.number}</code>
-              </button>
-              <button onClick={() => copy(`gh pr checks ${pr.number} --watch`, 'Command')}>
-                <code>gh pr checks {pr.number} --watch</code>
-              </button>
-              <button onClick={() => copy(`gh pr view ${pr.number} --web`, 'Command')}>
-                <code>gh pr view {pr.number} --web</code>
-              </button>
-            </div>
-          )}
-        </div>
-        <button className="btn sm" onClick={() => call('shell:openExternal', { url: pr.url }).catch(() => undefined)}>
-          Open on GitHub ↗
-        </button>
-      </div>
+          <span className="prc-crumb here" aria-current="page">
+            #{pr.number}
+          </span>
+        </nav>
+        <span className="spacer" />
+        {verdict.tone === 'ok' && pr.state === 'OPEN' ? (
+          <button className="merge-cta" onClick={onShowMerge} title={verdict.detail}>
+            <span className="merge-cta-ico">⇋</span> Merge pull request
+          </button>
+        ) : (
+          <button className={`verdict-chip ${verdict.tone}`} onClick={onShowMerge} title={verdict.detail}>
+            {verdict.icon} {verdict.title}
+          </button>
+        )}
+      </header>
 
       {editing !== null ? (
         <div className="title-edit">
@@ -195,24 +177,6 @@ export function PrHero({ repoId, pr, ctx, onRefresh, onShowMerge, onBack }: Prop
         </span>
       </div>
 
-      <div className="pr-stats">
-        <span className="pr-stat">
-          <strong>{pr.commits}</strong> commits
-        </span>
-        <span className="pr-stat">
-          <strong>{pr.changedFiles}</strong> files
-        </span>
-        <span className="pr-stat">
-          <DiffStat add={pr.additions} del={pr.deletions} />
-        </span>
-        <span className="pr-stat muted">
-          opened {relTime(pr.createdAt)} · updated {relTime(pr.updatedAt)}
-        </span>
-        <span className="spacer" />
-        <button className={`verdict-chip ${verdict.tone}`} onClick={onShowMerge} title={verdict.detail}>
-          {verdict.icon} {verdict.title}
-        </button>
-      </div>
 
 
       {confirm && (

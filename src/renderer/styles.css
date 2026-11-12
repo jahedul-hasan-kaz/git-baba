@@ -4756,3 +4756,12 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .modal-backdrop { grid-template-columns: minmax(0, 1fr); }
 .modal { justify-self: center; max-width: 100%; min-width: 0; }
 .modal > .modal-body { min-width: 0; }
+
+/* Pull request: a merge call-to-action that stands out when the pull request can be merged. */
+.merge-cta { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 16px; border: 1px solid rgba(62, 207, 142, 0.7); border-radius: 999px; font: inherit; font-weight: 700; color: #fff; cursor: pointer; background: linear-gradient(135deg, #2ea043, #3ecf8e); box-shadow: 0 0 0 0 rgba(62, 207, 142, 0.5), 0 6px 18px rgba(46, 160, 67, 0.35); animation: merge-pulse 2.4s ease-out infinite; transition: transform 0.12s, filter 0.12s; }
+.merge-cta:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.merge-cta::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%); transform: translateX(-120%); animation: merge-shine 3.2s ease-in-out infinite; }
+.merge-cta-ico { font-size: 14px; }
+@keyframes merge-pulse { 0% { box-shadow: 0 0 0 0 rgba(62, 207, 142, 0.5), 0 6px 18px rgba(46, 160, 67, 0.35); } 70% { box-shadow: 0 0 0 10px rgba(62, 207, 142, 0), 0 6px 18px rgba(46, 160, 67, 0.35); } 100% { box-shadow: 0 0 0 0 rgba(62, 207, 142, 0), 0 6px 18px rgba(46, 160, 67, 0.35); } }
+@keyframes merge-shine { 0%, 60% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+@media (prefers-reduced-motion: reduce) { .merge-cta, .merge-cta::after { animation: none; } }

@@ -17,7 +17,6 @@ import { CHECK_STATE, CommitsTimeline } from './pr/CommitsTimeline';
 import { isTokenProblem, useGhCli } from './pr/ghCli';
 import { MergeStatusPanel } from './pr/MergeStatusPanel';
 import { PrHero } from './pr/PrHero';
-import { mergeVerdict } from './pr/mergeVerdict';
 
 /** Markdown body for descriptions and comments; links open in the browser, never in the app window. */
 function MdBody({ text, empty = 'No description provided.' }: { text: string; empty?: string }) {
@@ -91,15 +90,6 @@ export function PrDetail({ repoId, ctx, metadata, number, onBack }: Props) {
         }}
       />
 
-      <Journey
-        pr={pr}
-        onGo={(t) => {
-          if (t === 'merge') {
-            setTab('conversation');
-            setTimeout(() => mergeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
-          } else setTab(t);
-        }}
-      />
 
       <div className="prd-dock">
         <nav className="prd-tabs" role="tablist">
@@ -507,62 +497,6 @@ function CommitModal({ repoId, oid, message, prUrl, onClose }: { repoId: string;
   );
 }
 
-// ---------------------------------------------------------------------------
-// Journey — where the pull request stands, as five connected steps
-// ---------------------------------------------------------------------------
-
-type Tone = 'ok' | 'warn' | 'danger' | 'idle' | 'merged' | 'info' | 'closed';
-
-function Journey({ pr, onGo }: { pr: PrDetails; onGo: (t: Tab | 'merge') => void }) {
-  const s = pr.checksSummary;
-  const unresolved = pr.reviewThreads.filter((t) => !t.isResolved).length;
-  const approvals = pr.latestReviews.filter((r) => r.state === 'APPROVED').length;
-  const verdict = mergeVerdict(pr);
-  const steps: { key: string; go: Tab | 'merge'; tone: Tone; title: string; sub: string }[] = [
-    {
-      key: 'open',
-      go: 'commits',
-      tone: pr.isDraft && pr.state === 'OPEN' ? 'info' : 'ok',
-      title: pr.isDraft && pr.state === 'OPEN' ? 'Draft' : 'Proposed',
-      sub: `${pr.commits} commit${pr.commits === 1 ? '' : 's'} · ${relTime(pr.createdAt)}`,
-    },
-    {
-      key: 'checks',
-      go: 'checks',
-      tone: !s.total ? 'idle' : s.failed ? 'danger' : s.pending ? 'warn' : 'ok',
-      title: 'Checks',
-      sub: !s.total ? 'none configured' : s.failed ? `${s.failed} failing` : s.pending ? `${s.pending} running` : `${s.passed} passed`,
-    },
-    {
-      key: 'review',
-      go: 'files',
-      tone: pr.reviewDecision === 'APPROVED' ? 'ok' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'danger' : pr.reviewDecision === 'REVIEW_REQUIRED' ? 'warn' : approvals ? 'ok' : 'idle',
-      title: 'Review',
-      sub: pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : approvals ? `${approvals} approval${approvals === 1 ? '' : 's'}` : pr.requestedReviewers.length ? `${pr.requestedReviewers.length} requested` : 'no reviews yet',
-    },
-    {
-      key: 'talk',
-      go: 'conversation',
-      tone: unresolved ? 'warn' : pr.reviewThreads.length ? 'ok' : 'idle',
-      title: 'Conversations',
-      sub: unresolved ? `${unresolved} unresolved` : pr.reviewThreads.length ? 'all resolved' : `${pr.comments} comment${pr.comments === 1 ? '' : 's'}`,
-    },
-    { key: 'merge', go: 'merge', tone: verdict.tone as Tone, title: pr.state === 'MERGED' ? 'Merged' : pr.state === 'CLOSED' ? 'Closed' : 'Merge', sub: verdict.title },
-  ];
-  return (
-    <div className="prd-journey" role="list">
-      {steps.map((st, i) => (
-        <button key={st.key} role="listitem" className={`prd-step ${st.tone}`} onClick={() => onGo(st.go)} title={st.key === 'merge' ? verdict.detail : undefined}>
-          <span className="prd-step-node">{st.tone === 'ok' || st.tone === 'merged' ? '✓' : st.tone === 'danger' ? '✕' : st.tone === 'warn' ? '!' : i + 1}</span>
-          <span className="prd-step-text">
-            <strong>{st.title}</strong>
-            <span className="small muted ellipsis">{st.sub}</span>
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Review panel — read-only reviewers and an at-a-glance summary
