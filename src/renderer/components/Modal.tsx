@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
 
 const ModalCloseContext = createContext<(() => void) | null>(null);
@@ -32,7 +33,7 @@ export function Modal({ title, icon, onClose, footer, size = 'normal', children,
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, locked]);
 
-  return (
+  return createPortal(
     <div ref={backdrop} className="modal-backdrop" role="dialog" aria-modal="true">
       <div className={`modal ${size === 'normal' ? '' : size}`}>
         <div className="modal-header">
@@ -47,7 +48,8 @@ export function Modal({ title, icon, onClose, footer, size = 'normal', children,
         </div>
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

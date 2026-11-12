@@ -4747,3 +4747,12 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .deck-act:hover { color: var(--text); background: var(--bg-3); border-color: var(--border-2); }
 .deck-act.icon-only { padding: 0 5px; }
 .deck-act svg { flex: none; }
+
+.run-top { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; min-width: 0; }
+.run-top .prc-crumbs { min-width: 0; }
+.run-detail .run-hero { margin-bottom: 16px; }
+
+/* Dialogs never grow past the window: long unwrapped content (logs) scrolls inside instead. */
+.modal-backdrop { grid-template-columns: minmax(0, 1fr); }
+.modal { justify-self: center; max-width: 100%; min-width: 0; }
+.modal > .modal-body { min-width: 0; }

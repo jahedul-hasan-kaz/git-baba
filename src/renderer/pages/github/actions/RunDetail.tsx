@@ -8,7 +8,7 @@ import { call } from '../../../services/api';
 import { useApp } from '../../../state/AppState';
 import { StepLogs } from './StepLogs';
 import { PipelineGraph, StepTimeline } from './PipelineGraph';
-import { elapsed, indexTags, openUrl, RunIcon, runState, STATE_LABEL, TagChip, tagsForRun, useTicker } from './shared';
+import { elapsed, indexTags, RunIcon, runState, STATE_LABEL, TagChip, tagsForRun, useTicker } from './shared';
 import { Hourglass } from '../../../components/Hourglass';
 
 const POLL_MS = 3000;
@@ -39,21 +39,6 @@ export function RunDetail({ repoId, runId, canWrite, tags, onBack, onChanged }: 
   const [celebrate, setCelebrate] = useState(false);
   const { busy, run } = useMutation();
   const prevState = useRef<string | null>(null);
-  const [jobView, setJobView] = useState<'pipeline' | 'list'>(() => {
-    try {
-      return localStorage.getItem('gb.actions.jobView') === 'list' ? 'list' : 'pipeline';
-    } catch {
-      return 'pipeline';
-    }
-  });
-  const pickView = (v: 'pipeline' | 'list') => {
-    setJobView(v);
-    try {
-      localStorage.setItem('gb.actions.jobView', v);
-    } catch {
-      /* per-viewer convenience */
-    }
-  };
 
   const r = data.data?.run;
   const jobs = data.data?.jobs ?? [];
@@ -108,24 +93,42 @@ export function RunDetail({ repoId, runId, canWrite, tags, onBack, onChanged }: 
   const state = runState(r.status, r.conclusion);
   const done = r.status === 'completed';
   const failed = done && (state === 'failure' || state === 'cancelled');
-  const finished = jobs.filter((j) => j.status === 'completed').length;
-  const counts = { success: 0, failure: 0, running: 0, other: 0 };
-  for (const j of jobs) {
-    const s = runState(j.status, j.conclusion);
-    if (s === 'success') counts.success++;
-    else if (s === 'failure') counts.failure++;
-    else if (s === 'running' || s === 'queued' || s === 'waiting') counts.running++;
-    else counts.other++;
-  }
   const job = jobs.find((j) => j.id === selected) ?? null;
   const runTags = tagsForRun(r, bySha, names);
   const total = elapsed(r.startedAt ?? r.createdAt, done ? r.updatedAt : null, now);
 
   return (
     <div className="content run-detail">
-      <button className="btn sm ghost mb" onClick={onBack}>
-        ← All runs
-      </button>
+      <header className="run-top">
+        <nav className="prc-crumbs" aria-label="Breadcrumb">
+          <button className="prc-crumb back" onClick={onBack} title="Back to all runs">
+            <span className="prc-crumb-ico">▶</span> All runs
+          </button>
+          <span className="prc-crumb here ellipsis" aria-current="page" title={`${r.name} #${r.runNumber}`}>
+            {r.name} #{r.runNumber}
+          </span>
+        </nav>
+        <span className="spacer" />
+        {live && <span className="live-dot" title="Updating live" />}
+        {!done && (
+          <button className="btn sm danger" disabled={!canWrite || busy} onClick={() => setAction('cancel')} title={canWrite ? 'Stop every job of this run' : 'Requires write access'}>
+            ⏹ Cancel run
+          </button>
+        )}
+        {failed && (
+          <button className="btn sm" disabled={!canWrite || busy} onClick={() => setAction('rerun-failed')}>
+            <Hourglass /> Re-run failed jobs
+          </button>
+        )}
+        {job && job.status === 'completed' && (
+          <button className="btn sm" disabled={!canWrite || busy} onClick={() => setRerunJob(job)} title={`Re-run only ${job.name}`}>
+            <Hourglass /> Re-run job
+          </button>
+        )}
+        <button className="btn sm ghost" disabled={data.loading} onClick={() => void reload()} title="Refresh">
+          <Hourglass />
+        </button>
+      </header>
 
       <div className={`run-hero ${state} ${celebrate ? 'celebrate' : ''}`}>
         {celebrate && (
@@ -161,98 +164,17 @@ export function RunDetail({ repoId, runId, canWrite, tags, onBack, onChanged }: 
         </div>
       </div>
 
-      <div className="run-toolbar">
-        <div className="run-progress" title={`${finished} of ${jobs.length} job(s) finished`}>
-          {counts.success > 0 && <span className="seg ok" style={{ flex: counts.success }} />}
-          {counts.failure > 0 && <span className="seg danger" style={{ flex: counts.failure }} />}
-          {counts.running > 0 && <span className="seg warn flow" style={{ flex: counts.running }} />}
-          {(counts.other > 0 || jobs.length === 0) && <span className="seg muted" style={{ flex: counts.other || 1 }} />}
-        </div>
-        <span className="small muted nowrap">
-          {finished}/{jobs.length} jobs
-        </span>
-        <span className="spacer" />
-        {!done && (
-          <button className="btn sm danger" disabled={!canWrite || busy} onClick={() => setAction('cancel')} title={canWrite ? 'Stop every job of this run' : 'Requires write access'}>
-            ⏹ Cancel run
-          </button>
-        )}
-        {failed && (
-          <button className="btn sm" disabled={!canWrite || busy} onClick={() => setAction('rerun-failed')}>
-            <Hourglass /> Re-run failed jobs
-          </button>
-        )}
-        {done && (
-          <button className="btn sm" disabled={!canWrite || busy} onClick={() => setAction('rerun')}>
-            <Hourglass /> Re-run all jobs
-          </button>
-        )}
-        <button className="btn sm ghost" onClick={() => openUrl(r.url)}>
-          Open on GitHub ↗
-        </button>
-        {live && <span className="live-dot" title="Updating live" />}
-      </div>
+      <PipelineGraph
+        jobs={jobs}
+        selected={selected}
+        now={now}
+        onSelect={(id) => {
+          picked.current = true;
+          setSelected(id);
+        }}
+      />
 
-      <div className="pipe-bar">
-        <div className="seg">
-          <button className={jobView === 'pipeline' ? 'on' : ''} onClick={() => pickView('pipeline')} title="Jobs as a pipeline of stages">
-            ⛓ Pipeline
-          </button>
-          <button className={jobView === 'list' ? 'on' : ''} onClick={() => pickView('list')} title="Jobs as a list beside the steps">
-            ☰ List
-          </button>
-        </div>
-        <span className="small muted">Stages are worked out from when each job ran.</span>
-      </div>
-      {jobView === 'pipeline' && (
-        <PipelineGraph
-          jobs={jobs}
-          selected={selected}
-          now={now}
-          onSelect={(id) => {
-            picked.current = true;
-            setSelected(id);
-          }}
-        />
-      )}
-
-      <div className={`run-body ${jobView === 'pipeline' ? 'wide' : ''}`}>
-        {jobView === 'list' && (
-        <div className="run-jobs">
-          <div className="run-jobs-title">Jobs</div>
-          {jobs.length === 0 && <div className="small muted pad">Waiting for jobs to start…</div>}
-          {jobs.map((j) => {
-            const js = runState(j.status, j.conclusion);
-            const t = elapsed(j.startedAt, j.completedAt, now);
-            const stepDone = j.steps.filter((s) => s.status === 'completed').length;
-            return (
-              <div
-                key={j.id}
-                className={`run-job ${js} ${selected === j.id ? 'selected' : ''}`}
-                onClick={() => {
-                  picked.current = true;
-                  setSelected(j.id);
-                }}
-              >
-                <RunIcon status={j.status} conclusion={j.conclusion} />
-                <div className="grow" style={{ minWidth: 0 }}>
-                  <div className="ellipsis">{j.name}</div>
-                  <div className="small muted">
-                    {js === 'running' && j.steps.length ? `step ${Math.min(stepDone + 1, j.steps.length)}/${j.steps.length}` : STATE_LABEL[js]}
-                    {t !== null ? ` · ${duration(t)}` : ''}
-                  </div>
-                  {js === 'running' && j.steps.length > 0 && (
-                    <div className="mini-bar">
-                      <i style={{ width: `${(stepDone / j.steps.length) * 100}%` }} />
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        )}
+      <div className="run-body wide">
         <div className="run-steps">
           {!job ? (
             <div className="empty small">Select a job to see its steps.</div>
@@ -275,19 +197,15 @@ export function RunDetail({ repoId, runId, canWrite, tags, onBack, onChanged }: 
                 >
                   ≡ Logs
                 </button>
-                {job.status === 'completed' && (
-                  <button className="btn sm ghost" disabled={!canWrite || busy} onClick={() => setRerunJob(job)} title="Re-run only this job">
-                    <Hourglass /> Re-run job
-                  </button>
-                )}
-                {job.url && (
-                  <button className="btn sm ghost" onClick={() => openUrl(job.url!)}>
-                    ↗
-                  </button>
-                )}
               </div>
-              <StepTimeline job={job} now={now} />
-              <StepLogs repoId={repoId} runId={runId} job={job} now={now} />
+              {job.status === 'completed' ? (
+                <>
+                  <StepTimeline job={job} now={now} />
+                  <StepLogs repoId={repoId} runId={runId} job={job} now={now} />
+                </>
+              ) : (
+                <div className="empty small">The log appears here when this job finishes.</div>
+              )}
             </>
           )}
         </div>

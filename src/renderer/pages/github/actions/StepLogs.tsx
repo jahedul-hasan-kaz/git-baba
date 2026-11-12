@@ -227,9 +227,6 @@ export function StepLogs({ repoId, runId, job, now }: Props) {
         <button className="btn sm ghost" onClick={() => setOpen(new Set())}>
           Collapse all
         </button>
-        <button className="btn sm ghost" onClick={() => void load()} title="Reload the log">
-          <Hourglass />
-        </button>
       </div>
       <Annotations repoId={repoId} jobId={job.id} done={!running} />
       {source && source.kind !== 'job' && (

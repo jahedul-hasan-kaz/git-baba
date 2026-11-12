@@ -148,6 +148,9 @@ function Actions({ repoId, ctx }: { repoId: string; ctx: GhRepoContext }) {
               </button>
             </>
           )}
+          <button className="btn sm" onClick={() => void runs.reload()} title="Refresh">
+            <Hourglass />
+          </button>
         </div>
 
         <div className="actions-filters">
@@ -176,9 +179,6 @@ function Actions({ repoId, ctx }: { repoId: string; ctx: GhRepoContext }) {
               </option>
             ))}
           </Select>
-          <button className="btn sm" onClick={() => void runs.reload()} title="Refresh">
-            <Hourglass />
-          </button>
         </div>
 
         <div className="status-chips">
