@@ -587,9 +587,6 @@ export function CodePage() {
         ) : view.kind === 'file' ? (
           <div className="fade-in code-file">
             <div className="row mb code-file-head">
-              <button className="btn sm ghost" onClick={() => goDir(parentOf(view.path))} title="Back to folder">
-                ←
-              </button>
               {crumbs(view.path, true)}
               {changes.get(view.path) && <span className={`change-tag ${changes.get(view.path)}`}>{changes.get(view.path) === 'added' ? 'new' : changes.get(view.path)}</span>}
             </div>
