@@ -1,7 +1,7 @@
 {
   "name": "electron-git-manager",
   "productName": "Git Baba",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "A security-first desktop Git client: review, authenticate and confirm every commit, push and pull.",
   "main": "dist/main/main/index.js",
   "license": "MIT",
