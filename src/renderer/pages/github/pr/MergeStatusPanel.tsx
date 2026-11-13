@@ -3,6 +3,7 @@ import type { GhRepoContext, PrDetails } from '../../../../shared/github';
 import { Avatar, relTime } from '../../../components/github/common';
 import { ConfirmDialog } from '../../../dialogs/ConfirmDialog';
 import { useGhCli } from './ghCli';
+import { awaitsApproval, useApprovedOnly } from './approvalGate';
 import { mergeVerdict } from './mergeVerdict';
 
 import { Select } from '../../../components/Select';
@@ -29,6 +30,8 @@ export const MergeStatusPanel = forwardRef<HTMLDivElement, Props>(function Merge
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [confirmCli, setConfirmCli] = useState(false);
   const s = pr.checksSummary;
+  const [approvedOnly, setApprovedOnly] = useApprovedOnly(`${ctx.owner}/${ctx.name}`);
+  const gated = awaitsApproval(approvedOnly, pr);
 
   if (pr.state !== 'OPEN') {
     return (
@@ -127,8 +130,13 @@ export const MergeStatusPanel = forwardRef<HTMLDivElement, Props>(function Merge
           </div>
         ))}
       </div>
+      {gated && (
+        <div className="banner warn small" style={{ margin: '0 0 10px' }}>
+          Waiting for an approving review. This repository is set to merge only approved pull requests.
+        </div>
+      )}
       <div className="merge-actions">
-        <button className={`btn ${v.tone === 'ok' ? 'primary' : ''}`} onClick={onMerge} disabled={pr.isDraft} title="Runs a pre-merge check against the branch rules, then asks you to authenticate and confirm">
+        <button className={`btn ${v.tone === 'ok' && !gated ? 'primary' : ''}`} onClick={onMerge} disabled={pr.isDraft || gated} title={gated ? 'Needs an approving review first' : 'Runs a pre-merge check against the branch rules, then asks you to authenticate and confirm'}>
           ⇋ Merge pull request…
         </button>
         <span className="merge-or">or with GitHub CLI</span>
@@ -142,10 +150,13 @@ export const MergeStatusPanel = forwardRef<HTMLDivElement, Props>(function Merge
         <label className="check small" style={{ margin: 0 }}>
           <input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} /> delete branch
         </label>
-        <button className="btn" disabled={pr.isDraft || !!cli.busy} onClick={() => setConfirmCli(true)}>
+        <button className="btn" disabled={pr.isDraft || gated || !!cli.busy} onClick={() => setConfirmCli(true)}>
           {cli.busy === 'merge' ? 'Merging…' : 'Merge with gh'}
         </button>
       </div>
+      <label className="check small" style={{ margin: '8px 0 0' }} title="Applies to every pull request in this repository, on this computer">
+        <input type="checkbox" checked={approvedOnly} onChange={(e) => setApprovedOnly(e.target.checked)} /> Merge only approved pull requests
+      </label>
       <div className="small muted merge-foot">GitHub enforces the branch rules either way: a blocked pull request stays unmerged unless you are allowed to bypass them.</div>
 
       {confirmCli && (

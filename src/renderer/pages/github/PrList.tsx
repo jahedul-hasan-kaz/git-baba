@@ -364,13 +364,13 @@ export function PrList({ repoId, ctx, metadata, onOpen, onCreate }: Props) {
           {QUICK.map((f) => {
             const on = getQualifier(query, f.key) === f.value;
             return (
-              <button key={f.label} className={`prx-lens ${on ? 'on' : ''}`} onClick={() => apply(setQualifier(query, f.key, on ? null : f.value))}>
-                {f.label}
+              <button key={f.label} className={`quick-chip ${on ? "on" : ""}`} aria-pressed={on} onClick={() => apply(setQualifier(query, f.key, on ? null : f.value))}>
+                {on && "✓ "}{f.label}
               </button>
             );
           })}
           {filtered && (
-            <button className="prx-lens clear" onClick={() => apply(setState(DEFAULT_QUERY, state))}>
+            <button className="quick-chip clear" onClick={() => apply(setState(DEFAULT_QUERY, state))}>
               ✕ Clear
             </button>
           )}

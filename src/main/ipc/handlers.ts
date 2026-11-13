@@ -24,7 +24,20 @@ import type {
 import type { AppContext } from '../context';
 import { AppError, toFriendlyError } from '../git/errors';
 import { EMPTY_TREE, GitService } from '../git/GitService';
-import { mainWorktreeOf, parentOfMissingWorktree } from '../git/worktrees';
+import { mainWorktreeOf, parentOfMissingWorktree, Worktrees } from '../git/worktrees';
+
+/**
+ * Applying straight onto a branch that is checked out in another worktree (e.g. qa in the main folder while you
+ * work in a feature worktree): run it in that folder, so nothing has to switch branches here.
+ */
+async function gitForTarget(repoPath: string, git: GitService, into: string, target: string): Promise<GitService> {
+  if (into !== 'target') return git;
+  const st = await git.status().catch(() => null);
+  if (st?.branch === target) return git;
+  const same = (a: string, b: string) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  const holder = (await new Worktrees(repoPath).list().catch(() => [])).find((w) => w.branch === target && !w.prunable && !same(w.path, repoPath));
+  return holder ? new GitService(holder.path) : git;
+}
 import { countChanges } from '../git/parsers';
 import { analyzeReport, recheckReport } from '../git/pushRuleAnalysis';
 import { parsePushRejection } from '../git/pushRules';
@@ -643,8 +656,9 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
       asConfirmed(p.confirmed);
       const { repo, git } = ctx.git(p.repoId);
       const into = asEnum(p.into, 'into', ['new-branch', 'target'] as const);
+      const tgit = await gitForTarget(repo.path, git, String(p.into), String(p.target));
       const r = await ctx.withLock(repo.id, () =>
-        git.transplant({
+        tgit.transplant({
           target: asString(p.target, 'target', { max: 255 }),
           commits: asStringArray(p.commits, 'commits', 500),
           into,
@@ -675,8 +689,9 @@ export function createHandlers(ctx: AppContext, getWindow: () => BrowserWindow |
                 }),
         };
       });
+      const tgit = await gitForTarget(repo.path, git, String(p.into), String(p.target));
       const r = await ctx.withLock(repo.id, () =>
-        git.transplantPick({
+        tgit.transplantPick({
           source: asString(p.source, 'source', { max: 255 }),
           base: asString(p.base, 'base', { max: 255 }),
           target: asString(p.target, 'target', { max: 255 }),

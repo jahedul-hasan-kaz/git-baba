@@ -64,7 +64,50 @@ interface Wire {
  * stops at the first step that needs attention and can be resumed.
  */
 export function MultiMergeCard({ repoId, local, remote, currentName, sources, setSources, target, setTarget, onChanged, headless }: Props) {
-  const { revision } = useApp();
+  const { revision, toast, showError, repos, selectRepo } = useApp();
+  /** The branch a temporary integration branch was made from (to merge it back when ready). */
+  const [integrationFrom, setIntegrationFrom] = useState<Record<string, string>>({});
+  /** Release branch name being typed (null: the name field is closed). */
+  const [releaseName, setReleaseName] = useState<string | null>(null);
+  const startIntegration = async (kind: 'integration' | 'release', chosen?: string) => {
+    const base = target;
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+    const suggested = kind === 'release' ? `release/${stamp}` : `integration/${base.replace(/[^A-Za-z0-9._-]+/g, '-')}-${stamp}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+    if (kind === 'release' && chosen === undefined) {
+      // Electron has no window.prompt: ask inline instead.
+      setReleaseName(suggested);
+      return;
+    }
+    const name = (chosen ?? suggested).trim();
+    if (!name) return;
+    setReleaseName(null);
+    try {
+      // Local only: nothing is pushed, no tag is made and no workflow runs until you publish it yourself.
+      await call('git:createBranch', { repoId, name, startPoint: base, switchTo: false });
+      setIntegrationFrom((m) => ({ ...m, [name]: base }));
+      setTarget(name);
+      onChanged();
+      toast(`Created ${name} from ${base} (local only). Merge the selected features into it; ${base} stays untouched.`);
+    } catch (err) {
+      showError(err);
+    }
+  };
+  /** Validate in its own worktree folder, so no existing folder has to switch branches. */
+  const validateInWorktree = async (branch: string) => {
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    const dir = `${repo.path.replace(/[\/]+$/, '')}-${branch.replace(/[^A-Za-z0-9._-]+/g, '-')}`;
+    try {
+      const w = await call('git:worktreeAdd', { repoId, path: dir, branch, create: false });
+      const opened = await call('git:worktreeOpen', { repoId, path: w.path });
+      selectRepo(opened.id);
+    } catch (err) {
+      showError(err);
+    }
+  };
+  const integrationBase = integrationFrom[target] ?? null;
   const [dragFrom, setDragFrom] = useState<{ name: string; index: number | null } | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [overTarget, setOverTarget] = useState(false);
@@ -787,6 +830,53 @@ export function MultiMergeCard({ repoId, local, remote, currentName, sources, se
             </div>
           ) : (
             <div className="small muted mt">{overTarget && dragFrom && !localNames.has(dragFrom.name) ? 'Only a local branch can be the target' : 'or drop a local branch here'}</div>
+          )}
+          {target && !queue && !integrationBase && releaseName !== null && (
+            <form
+              className="row mt"
+              style={{ gap: 6, justifyContent: 'center' }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void startIntegration('release', releaseName);
+              }}
+            >
+              <input autoFocus value={releaseName} onChange={(e) => setReleaseName(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setReleaseName(null)} placeholder="release/…" spellCheck={false} style={{ maxWidth: 220 }} title={`Release branch name, created from ${target}`} />
+              <button className="btn sm primary" type="submit" disabled={!releaseName.trim()}>
+                Create
+              </button>
+              <button className="btn sm ghost" type="button" onClick={() => setReleaseName(null)}>
+                Cancel
+              </button>
+            </form>
+          )}
+          {target && !queue && !integrationBase && releaseName === null && (
+            <div className="row mt" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <button className="btn sm ghost" onClick={() => void startIntegration('integration')} title={`Creates a temporary branch from ${target} and makes it the target; ${target} stays untouched`}>
+                ⎇ Temporary integration branch
+              </button>
+              <button className="btn sm ghost" onClick={() => void startIntegration('release')} title={`Creates a named release branch from ${target} and makes it the target; ${target} stays untouched`}>
+                🏷 Release branch
+              </button>
+            </div>
+          )}
+          {integrationBase && !queue && (
+            <div className="small mt">
+              <span className="muted">Made from {integrationBase} (local only). </span>
+              <button className="btn sm ghost" onClick={() => void validateInWorktree(target)} title={`Opens ${target} in its own worktree folder to build and test it; no other folder changes branch`}>
+                ✓ Validate in its own worktree
+              </button>
+              <span className="muted"> then </span>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  setSources(() => [target]);
+                  setTarget(integrationBase);
+                }}
+                title={`Sets up merging ${target} into ${integrationBase}`}
+              >
+                merge it into {integrationBase}
+              </button>
+            </div>
           )}
         </div>
       </div>

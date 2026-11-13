@@ -23,7 +23,8 @@ import type {
 } from '../../shared/types';
 import type { AppContext } from '../context';
 import { AppError, toFriendlyError } from '../git/errors';
-import type { GitService } from '../git/GitService';
+import { GitService } from '../git/GitService';
+import { Worktrees } from '../git/worktrees';
 import { assertRepoAccountActive } from '../accounts/repoAccount';
 import { parseRemoteUrl as parseRemoteForAccount } from '../git/remoteUrl';
 import { generateSshKey, inspectSshKey, listLocalPublicKeys, parsePublicKey, sshDirectory, verifySshPassphrase } from '../git/sshKeys';
@@ -584,7 +585,28 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
         if (bridge && (await git.tryRevParse(`refs/heads/${bridge}`))) {
           throw new AppError({ code: 'already-exists', title: 'Merge Branch Exists', message: `A branch named "${bridge}" already exists. Choose another name.` });
         }
-        if ((bridge || st.branch !== r.target) && (st.staged.length || st.unstaged.length)) {
+        // Worktrees: when the target is checked out in another folder (e.g. qa in the main folder while you work in a
+        // feature worktree), merge there instead of switching here; this folder and every other worktree stay untouched.
+        let wgit = git;
+        let elsewhere: string | null = null;
+        if (!bridge && st.branch !== r.target) {
+          const same = (a: string, b: string) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+          const holder = (await new Worktrees(repo.path).list().catch(() => [])).find((w) => w.branch === r.target && !w.prunable && !same(w.path, repo.path));
+          if (holder) {
+            elsewhere = holder.path;
+            wgit = new GitService(holder.path);
+            const hs = await wgit.status();
+            blockIfBusy(hs);
+            if (hs.staged.length || hs.unstaged.length) {
+              throw new AppError({
+                code: 'local-changes',
+                title: 'Uncommitted Changes',
+                message: `${r.target} is checked out in ${path.basename(holder.path)}, which has uncommitted changes. Commit or stash them there first — nothing was changed.`,
+              });
+            }
+          }
+        }
+        if (!elsewhere && (bridge || st.branch !== r.target) && (st.staged.length || st.unstaged.length)) {
           throw new AppError({
             code: 'local-changes',
             title: 'Uncommitted Changes',
@@ -600,7 +622,7 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
             // New branch at exactly the reviewed target commit; the target itself is not changed.
             await git.createBranch(bridge, r.targetOid, true);
             switched = true;
-          } else if (st.branch !== r.target) {
+          } else if (!elsewhere && st.branch !== r.target) {
             await git.switchBranch(r.target);
             switched = true;
           }
@@ -608,15 +630,15 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
           if (r.state !== 'up-to-date') {
             const prefer = strategy === 'prefer-target' ? 'ours' : strategy === 'prefer-source' ? 'theirs' : undefined;
             // A fast-forward is already linear: rebase adds nothing, so it simply moves the branch.
-            const base = method === 'rebase' && r.state !== 'fast-forward' ? await git.mergeBase(r.targetOid, r.sourceOid) : null;
+            const base = method === 'rebase' && r.state !== 'fast-forward' ? await wgit.mergeBase(r.targetOid, r.sourceOid) : null;
             const conflicts =
               method === 'squash'
-                ? await git.squashMerge(r.sourceOid, customMessage ?? `Squashed merge of '${r.source}' into ${r.target}`, { allowUnrelated: r.state === 'unrelated', prefer })
+                ? await wgit.squashMerge(r.sourceOid, customMessage ?? `Squashed merge of '${r.source}' into ${r.target}`, { allowUnrelated: r.state === 'unrelated', prefer })
                 : base
-                  ? await git.replayCommits(base, r.sourceOid, { prefer })
-                  : await git.merge(r.sourceOid, { message: customMessage ?? `Merge branch '${r.source}' into ${r.target}`, allowUnrelated: r.state === 'unrelated', prefer });
+                  ? await wgit.replayCommits(base, r.sourceOid, { prefer })
+                  : await wgit.merge(r.sourceOid, { message: customMessage ?? `Merge branch '${r.source}' into ${r.target}`, allowUnrelated: r.state === 'unrelated', prefer });
             if (conflicts) {
-              const conflicted = (await git.status()).conflicted.map((f) => f.path);
+              const conflicted = (await wgit.status()).conflicted.map((f) => f.path);
               ctx.recordOperation(repo, 'Merge branch', 'WARNING', `${r.source} → ${workBranch}: ${conflicted.length} conflicted file(s)`);
               return {
                 outcome: 'conflicts',
@@ -628,12 +650,12 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
                 verifiedRemoteOid: null,
                 returnedTo: null,
                 authDescription: resolved.description,
-                message: `Merging ${r.source} into ${workBranch} stopped with conflicts. You are now on ${workBranch}. Resolve them (or abort the merge) in the Conflicts tab, then Continue; nothing was pushed.${bridge ? ` Afterwards publish ${bridge} (Push) and open the pull request ${bridge} → ${r.target}.` : ''}`,
+                message: `Merging ${r.source} into ${workBranch} stopped with conflicts. ${elsewhere ? `The merge is waiting in ${path.basename(elsewhere)} (where ${workBranch} is checked out); open that folder to resolve it.` : `You are now on ${workBranch}.`} Resolve them (or abort the merge) in the Conflicts tab, then Continue; nothing was pushed.${bridge ? ` Afterwards publish ${bridge} (Push) and open the pull request ${bridge} → ${r.target}.` : ''}`,
               };
             }
             outcome = r.state === 'fast-forward' ? 'fast-forward' : 'merged';
           }
-          const newOid = await git.revParse('HEAD');
+          const newOid = await wgit.revParse('HEAD');
           ctx.recordOperation(
             repo,
             'Merge branch',
@@ -647,8 +669,8 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
           const remoteBranch = bridge ?? r.remote?.remoteBranch;
           if (push && r.remote && remoteBranch) {
             try {
-              await git.push(r.remote.name, newOid, remoteBranch, resolved.git, { setUpstreamFor: bridge ? bridge : r.remote.hasUpstream ? undefined : r.target, transportUrl: resolved.transportUrl });
-              verifiedRemoteOid = await verifyPublished(git, r.remote, remoteBranch, newOid, resolved);
+              await wgit.push(r.remote.name, newOid, remoteBranch, resolved.git, { setUpstreamFor: bridge ? bridge : r.remote.hasUpstream ? undefined : r.target, transportUrl: resolved.transportUrl });
+              verifiedRemoteOid = await verifyPublished(wgit, r.remote, remoteBranch, newOid, resolved);
               pushed = true;
               ctx.recordOperation(repo, 'Push', 'SUCCESS', `${workBranch} → ${r.remote.name}/${remoteBranch} after merge, using ${resolved.description}`);
             } catch (err) {
@@ -679,7 +701,7 @@ export function createBranchHandlers(ctx: AppContext, h: BranchHelpers): Handler
             verifiedRemoteOid,
             returnedTo,
             authDescription: resolved.description,
-            message: `${what}.${push ? (pushed ? ` Published to ${r.remote!.name}/${remoteBranch} and verified.` : ' The merge is done locally, but publishing it failed.') : ' Not pushed (local only).'}`,
+            message: `${what}${elsewhere ? ` in ${path.basename(elsewhere)}, where it is checked out; this folder was not touched` : ''}.${push ? (pushed ? ` Published to ${r.remote!.name}/${remoteBranch} and verified.` : ' The merge is done locally, but publishing it failed.') : ' Not pushed (local only).'}`,
           };
         } finally {
           await resolved.cleanup();

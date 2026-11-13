@@ -4765,3 +4765,8 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 @keyframes merge-pulse { 0% { box-shadow: 0 0 0 0 rgba(62, 207, 142, 0.5), 0 6px 18px rgba(46, 160, 67, 0.35); } 70% { box-shadow: 0 0 0 10px rgba(62, 207, 142, 0), 0 6px 18px rgba(46, 160, 67, 0.35); } 100% { box-shadow: 0 0 0 0 rgba(62, 207, 142, 0), 0 6px 18px rgba(46, 160, 67, 0.35); } }
 @keyframes merge-shine { 0%, 60% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
 @media (prefers-reduced-motion: reduce) { .merge-cta, .merge-cta::after { animation: none; } }
+
+/* Pull request list footer: the divider runs edge to edge. */
+.prx > .pr-foot { margin: 8px -18px 0; padding: 8px 18px 0; }
+.prx .quick-chip { padding: 3px 11px; }
+.prx-cards:empty { display: none; }

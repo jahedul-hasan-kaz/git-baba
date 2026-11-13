@@ -5,6 +5,7 @@ import { ConfirmDialog } from '../../../dialogs/ConfirmDialog';
 import { call, toFriendly } from '../../../services/api';
 import { useApp } from '../../../state/AppState';
 import { isTokenProblem, useGhCli } from './ghCli';
+import { awaitsApproval, useApprovedOnly } from './approvalGate';
 import { mergeVerdict } from './mergeVerdict';
 
 /** Five-block "+/−" bar, as GitHub shows next to a diff. */
@@ -57,6 +58,8 @@ export function PrHero({ repoId, pr, ctx, onRefresh, onShowMerge, onBack }: Prop
   const st = stateOf(pr);
   const review = reviewOf(pr);
   const verdict = mergeVerdict(pr);
+  const [approvedOnly] = useApprovedOnly(`${ctx.owner}/${ctx.name}`);
+  const gated = awaitsApproval(approvedOnly, pr);
   const headLabel = `${pr.headRepository && pr.headRepository !== `${ctx.owner}/${ctx.name}` ? `${pr.headRepository}:` : ''}${pr.headRefName}`;
 
   useEffect(() => {
@@ -97,13 +100,13 @@ export function PrHero({ repoId, pr, ctx, onRefresh, onShowMerge, onBack }: Prop
           </span>
         </nav>
         <span className="spacer" />
-        {verdict.tone === 'ok' && pr.state === 'OPEN' ? (
+        {verdict.tone === 'ok' && pr.state === 'OPEN' && !gated ? (
           <button className="merge-cta" onClick={onShowMerge} title={verdict.detail}>
             <span className="merge-cta-ico">⇋</span> Merge pull request
           </button>
         ) : (
-          <button className={`verdict-chip ${verdict.tone}`} onClick={onShowMerge} title={verdict.detail}>
-            {verdict.icon} {verdict.title}
+          <button className={`verdict-chip ${gated && verdict.tone === 'ok' ? 'warn' : verdict.tone}`} onClick={onShowMerge} title={gated ? 'This repository merges only approved pull requests' : verdict.detail}>
+            {gated && verdict.tone === 'ok' ? '● Waiting for approval' : `${verdict.icon} ${verdict.title}`}
           </button>
         )}
       </header>

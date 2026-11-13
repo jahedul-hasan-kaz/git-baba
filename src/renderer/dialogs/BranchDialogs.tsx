@@ -31,7 +31,9 @@ const STATE_INFO: Record<SwitchFileState, { label: string; cls: string; help: st
 };
 
 export function SwitchBranchDialog({ repoId, target, kind, onClose, onDone }: { repoId: string; target: string; kind: 'local' | 'remote'; onClose: () => void; onDone: () => void }) {
-  const { toast, setRepoTab } = useApp();
+  const { toast, setRepoTab, selectRepo, showError } = useApp();
+  /** Another worktree folder that already has this branch checked out (Git allows one folder per branch). */
+  const [heldBy, setHeldBy] = useState<string | null>(null);
   const [preview, setPreview] = useState<BranchSwitchPreview | null>(null);
   const [error, setError] = useState<FriendlyError | null>(null);
   const [strategy, setStrategy] = useState<SwitchStrategy>('carry');
@@ -56,8 +58,18 @@ export function SwitchBranchDialog({ repoId, target, kind, onClose, onDone }: { 
   );
 
   useEffect(() => {
-    call('git:switchPreview', { repoId, target, kind })
+    const local = kind === 'local' ? target : null;
+    (local ? call('git:worktrees', { repoId }).catch(() => []) : Promise.resolve([]))
+      .then((list) => {
+        const holder = list.find((w) => w.branch === local && !w.current && !w.prunable);
+        if (holder) {
+          setHeldBy(holder.path);
+          return null;
+        }
+        return call('git:switchPreview', { repoId, target, kind });
+      })
       .then((p) => {
+        if (!p) return;
         setPreview(p);
         setStrategy(p.recommended);
         // Nothing uncommitted: there is nothing to decide, switch right away.
@@ -65,6 +77,39 @@ export function SwitchBranchDialog({ repoId, target, kind, onClose, onDone }: { 
       })
       .catch((err) => setError(toFriendly(err)));
   }, [repoId, target, kind, execute]);
+
+  if (heldBy) {
+    const openIt = () =>
+      call('git:worktreeOpen', { repoId, path: heldBy })
+        .then((r) => {
+          selectRepo(r.id);
+          onClose();
+        })
+        .catch(showError);
+    return (
+      <Modal
+        title={`${target} is open in another worktree`}
+        onClose={onClose}
+        footer={
+          <>
+            <button className="btn cancel" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" onClick={() => void openIt()}>
+              Open that worktree
+            </button>
+          </>
+        }
+      >
+        <p>
+          <strong>{target}</strong> is already checked out in <code>{heldBy}</code>. Git lets a branch be checked out in only one folder at a time, so this folder can't switch to it.
+        </p>
+        <p className="small muted">
+          To work on {target}, open that worktree. To bring {target}'s commits into the branch here instead, merge it (Merge Studio) — no switch is needed. Nothing was changed.
+        </p>
+      </Modal>
+    );
+  }
 
   if (preview && preview.files.length === 0 && !error) return <Modal title={`Switching to ${preview.target}`} onClose={onClose} locked><Spinner label="Switching…" /></Modal>;
 
