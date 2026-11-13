@@ -325,7 +325,16 @@ export function createExtraHandlers(
     },
     'graph:compare': async (payload) => {
       const p = asObject(payload);
-      return graphGit(p).compareCommits(asHash(p.from, 'from'), asHash(p.to, 'to'));
+      const git = graphGit(p);
+      // Commit ids, or branch / tag names (resolved to the commit they point at now).
+      const resolve = async (v: unknown, name: string) => {
+        const ref = asRef(v, name);
+        if (/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(ref)) return ref;
+        const oid = await git.tryRevParse(`${ref}^{commit}`);
+        if (!oid) throw new AppError({ code: 'invalid-revision', title: 'Not Found', message: `${ref} does not exist.` });
+        return oid;
+      };
+      return git.compareCommits(await resolve(p.from, 'from'), await resolve(p.to, 'to'));
     },
     'graph:fileAt': async (payload) => {
       const p = asObject(payload);

@@ -256,9 +256,10 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
                 setQ('');
                 inputRef.current?.focus();
               }}
-              aria-label="Clear"
+              aria-label="Clear search text"
+              title="Clear the search text"
             >
-              ✕
+              Clear
             </button>
           )}
           <button className="sp-close" onClick={onClose} aria-label="Close search" title="Close (Esc)">

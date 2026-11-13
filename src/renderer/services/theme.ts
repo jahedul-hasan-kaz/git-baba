@@ -39,14 +39,49 @@ export function resolveTheme(theme: Theme): Exclude<Theme, 'system'> {
 
 let systemListener: ((e: MediaQueryListEvent) => void) | null = null;
 
-function paint(theme: Exclude<Theme, 'system'>, animate: boolean): void {
+// Where the user last pressed: the new theme grows out from there.
+let lastPointer: { x: number; y: number } | null = null;
+try {
+  window.addEventListener('pointerdown', (e) => (lastPointer = { x: e.clientX, y: e.clientY }), { capture: true, passive: true });
+} catch {
+  /* no window (tests) */
+}
+
+function set(theme: Exclude<Theme, 'system'>): void {
   const root = document.documentElement;
-  if (animate) {
-    root.classList.add('theme-switching');
-    window.setTimeout(() => root.classList.remove('theme-switching'), 350);
-  }
   if (theme === 'default') delete root.dataset.theme;
   else root.dataset.theme = theme;
+}
+
+type ViewTransitionDoc = Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void>; finished: Promise<void> } };
+
+function paint(theme: Exclude<Theme, 'system'>, animate: boolean): void {
+  const root = document.documentElement;
+  const current = root.dataset.theme ?? 'default';
+  if (!animate || current === theme) return set(theme);
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const doc = document as ViewTransitionDoc;
+  if (reduce || !doc.startViewTransition) {
+    // Fallback: a short colour cross-fade.
+    root.classList.add('theme-switching');
+    window.setTimeout(() => root.classList.remove('theme-switching'), 350);
+    return set(theme);
+  }
+  // A circular reveal from the click point (or the top-right theme button), over a soft cross-fade.
+  const x = lastPointer?.x ?? window.innerWidth - 120;
+  const y = lastPointer?.y ?? 40;
+  const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  root.classList.add('theme-vt');
+  const vt = doc.startViewTransition(() => set(theme));
+  vt.ready
+    .then(() => {
+      root.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+        { duration: 650, easing: 'cubic-bezier(.22, .8, .25, 1)', pseudoElement: '::view-transition-new(root)' },
+      );
+    })
+    .catch(() => undefined);
+  vt.finished.finally(() => root.classList.remove('theme-vt'));
 }
 
 /** Applies a theme to the document (and remembers it). `animate` cross-fades colours briefly. */

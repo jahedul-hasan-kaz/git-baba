@@ -6,6 +6,7 @@ import { CleanSlate } from './changes/CleanSlate';
 import { relative } from '../components/FileDiffList';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { Spinner } from '../components/Modal';
+import { CompareStudio } from './history/CompareStudio';
 import { announceFilter, CLEAR_EVENT, JUMP_EVENT, takeJump } from '../services/jump';
 import { call, toFriendly } from '../services/api';
 import { useApp } from '../state/AppState';
@@ -269,6 +270,7 @@ export function GitHistoryPage({ workspace }: Props = {}) {
   const [compareMode, setCompareMode] = useState(false);
   const [slots, setSlots] = useState<[string | null, string | null]>([null, null]);
   const [dragging, setDragging] = useState<string | null>(null);
+  const [studio, setStudio] = useState(false);
   const [dropOn, setDropOn] = useState<string | null>(null);
   const pair = slots.filter((h): h is string => !!h);
   const [comparison, setComparison] = useState<CompareResult | null>(null);
@@ -764,12 +766,13 @@ export function GitHistoryPage({ workspace }: Props = {}) {
                     <TagChips refs={details.refs} max={2} />
                   </span>
                   <button className={`cd-more ${showInfo ? 'on' : ''}`} onClick={() => setShowInfo((v) => !v)} title="Message, parents, release and more">
-                    Details <span className="cd-caret">▾</span>
+                    Details <span className="cd-caret">⤢</span>
                   </button>
                 </div>
               </div>
               {showInfo && (
-                <div className="cd-info">
+                <Modal title={`Commit ${details.hash.slice(0, 7)}: ${details.subject}`} onClose={() => setShowInfo(false)}>
+                <div className="cd-info in-modal">
                   {details.body && <pre className="commit-body compact">{details.body}</pre>}
                   <div className="cd-tiles">
                     <button className="cd-tile wide" onClick={() => copy(details.hash, 'Commit SHA')} title="Copy full SHA">
@@ -837,6 +840,7 @@ export function GitHistoryPage({ workspace }: Props = {}) {
                     </div>
                   </div>
                 </div>
+                </Modal>
               )}
               <CommitFilesExplorer repoId={repoId} files={details.files} diffs={details.diffs} atCommit={details.hash} dockHost={diffHost} context={`${details.hash.slice(0, 7)} · ${details.subject} — ${details.author}`} />
             </>
@@ -908,9 +912,12 @@ export function GitHistoryPage({ workspace }: Props = {}) {
         </Select>
         <span className="grow" />
         <button
-          className={`btn sm ${compareMode ? 'primary' : ''}`}
-          onClick={() => (compareMode ? exitCompare() : setCompareMode(true))}
-          title="Compare two commits — click them, or drag any commit onto another"
+          className={`btn sm ${compareMode || studio ? 'primary' : ''}`}
+          onClick={() => {
+            if (compareMode) exitCompare();
+            setStudio(true);
+          }}
+          title="Compare branches, tags or commits with a target (tip: drag one commit onto another for a quick compare)"
         >
           ⇄ Compare
         </button>
@@ -941,6 +948,7 @@ export function GitHistoryPage({ workspace }: Props = {}) {
         </div>
       </div>
       {actions.undoBar}
+      {studio && <CompareStudio repoId={repoId} initialSources={selected && !wip ? [selected] : []} initialTarget={refs?.current ?? null} onClose={() => setStudio(false)} />}
       {(compareMode || dragging) && (
         <div className={`cmp-tray ${dragging ? 'dragging' : ''}`}>
           <CompareSlot slot="A" commit={slotCommit(slots[0])} active={compareMode && !slots[0]} onDropHash={(h) => dropToSlot('A', h)} onClear={() => setSlots(([, y]) => [null, y])} />

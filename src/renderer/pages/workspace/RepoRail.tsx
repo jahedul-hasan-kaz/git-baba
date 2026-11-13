@@ -410,10 +410,10 @@ export function RepoRail({ repoId, status, onFocus }: Props) {
       <div className={`wr-mode ${mode}`} role="tablist" aria-label="Sidebar view">
         <span className="wr-mode-pill" aria-hidden />
         <button role="tab" aria-selected={mode === 'branches'} className={mode === 'branches' ? 'on' : ''} onClick={() => setMode('branches')} title="Branches, stashes and tags">
-          ⎇ Branches <span className="wr-mode-n">{local.length}</span>
+          <span className="wr-mode-l">⎇ Branches</span> <span className="wr-mode-n">{local.length}</span>
         </button>
         <button role="tab" aria-selected={mode === 'worktrees'} className={mode === 'worktrees' ? 'on' : ''} onClick={() => setMode('worktrees')} title="Working folders of this repository">
-          🗂 Worktrees <span className="wr-mode-n">{worktreeCount}</span>
+          <span className="wr-mode-l">🗂 Worktrees</span> <span className="wr-mode-n">{worktreeCount}</span>
         </button>
       </div>
       <div className="wr-top">

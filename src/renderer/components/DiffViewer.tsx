@@ -63,8 +63,9 @@ function highlightText(text: string, term?: string): ReactNode {
   return out.length ? out : text || ' ';
 }
 
-export function DiffViewer({ diff, emptyText = 'Select a file to see its changes.', highlight, hideHeader }: { diff: FileDiff | null; emptyText?: string; highlight?: string; hideHeader?: boolean }) {
-  const [mode, setMode] = useState<'unified' | 'split'>('unified');
+export function DiffViewer({ diff, emptyText = 'Select a file to see its changes.', highlight, hideHeader, forceMode }: { diff: FileDiff | null; emptyText?: string; highlight?: string; hideHeader?: boolean; /** Controlled layout (the caller shows its own toggle). */ forceMode?: 'unified' | 'split' }) {
+  const [ownMode, setMode] = useState<'unified' | 'split'>('unified');
+  const mode = forceMode ?? ownMode;
   const [showAll, setShowAll] = useState(false);
   const totalLines = useMemo(() => diff?.hunks.reduce((n, h) => n + h.lines.length, 0) ?? 0, [diff]);
 
