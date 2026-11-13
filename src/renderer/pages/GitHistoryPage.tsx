@@ -6,6 +6,7 @@ import { CleanSlate } from './changes/CleanSlate';
 import { relative } from '../components/FileDiffList';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { Spinner } from '../components/Modal';
+import { announceFilter, CLEAR_EVENT, JUMP_EVENT, takeJump } from '../services/jump';
 import { call, toFriendly } from '../services/api';
 import { useApp } from '../state/AppState';
 
@@ -304,6 +305,38 @@ export function GitHistoryPage({ workspace }: Props = {}) {
       /* per-viewer convenience */
     }
   }, [paneW]);
+
+  useEffect(() => {
+    const take = () => {
+      const j = takeJump('commit', repoId);
+      if (!j) return;
+      setSearchInput(j.hash);
+      setSearch(j.hash);
+      setWip(false);
+      setSelected(j.hash);
+      if (placement === 'modal') setModalOpen(true);
+    };
+    take();
+    window.addEventListener(JUMP_EVENT, take);
+    return () => window.removeEventListener(JUMP_EVENT, take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId]);
+
+  // The tab bar shows "Clear search" while a filter is on.
+  useEffect(() => {
+    announceFilter(!!search);
+  }, [search]);
+  useEffect(() => {
+    const clear = () => {
+      setSearchInput('');
+      setSearch('');
+    };
+    window.addEventListener(CLEAR_EVENT, clear);
+    return () => {
+      window.removeEventListener(CLEAR_EVENT, clear);
+      announceFilter(false);
+    };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 350);
@@ -873,7 +906,7 @@ export function GitHistoryPage({ workspace }: Props = {}) {
           <option value="90">Last 90 days</option>
           <option value="365">Last year</option>
         </Select>
-        <input className="grow" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Search commits (message or SHA)…" />
+        <span className="grow" />
         <button
           className={`btn sm ${compareMode ? 'primary' : ''}`}
           onClick={() => (compareMode ? exitCompare() : setCompareMode(true))}

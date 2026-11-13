@@ -21,6 +21,8 @@ const ConflictsPage = lazy(() => import('./ConflictsPage').then((m) => ({ defaul
 const ActionsTab = lazy(() => import('./github/ActionsTab').then((m) => ({ default: m.ActionsTab })));
 const PullRequestsTab = lazy(() => import('./github/PullRequestsTab').then((m) => ({ default: m.PullRequestsTab })));
 const PullRequestPage = lazy(() => import('./PullRequestPage').then((m) => ({ default: m.PullRequestPage })));
+import { FILTER_EVENT, requestClearFilter } from '../services/jump';
+const SearchPalette = lazy(() => import('../components/search/SearchPalette').then((m) => ({ default: m.SearchPalette })));
 const RepoSettingsShell = lazy(() => import('./repoSettings/RepoSettingsShell').then((m) => ({ default: m.RepoSettingsShell })));
 
 // "Not now" for the GitHub App banner is a per-viewer convenience; storage may be unavailable.
@@ -483,6 +485,23 @@ function TabDock({ tabs, active, onPick: pick, locked }: { tabs: [RepoTab, strin
     window.addEventListener('resize', on);
     return () => window.removeEventListener('resize', on);
   }, [active]);
+  const [searching, setSearching] = useState(false);
+  const [filtered, setFiltered] = useState(false);
+  useEffect(() => {
+    const on = (e: Event) => setFiltered(!!(e as CustomEvent<boolean>).detail);
+    window.addEventListener(FILTER_EVENT, on);
+    return () => window.removeEventListener(FILTER_EVENT, on);
+  }, []);
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearching(true);
+      }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
   return (
     <div className="tabs dock" ref={ref} role="tablist">
       {tabs.map(([id, label, count, icon], i) => (
@@ -503,6 +522,24 @@ function TabDock({ tabs, active, onPick: pick, locked }: { tabs: [RepoTab, strin
         </div>
       ))}
       {ink && <span className="tab-ink" style={{ transform: `translateX(${ink.left}px)`, width: ink.width }} />}
+      {filtered && (
+        <button className="tab-clear" onClick={requestClearFilter} title="Show all commits again">
+          ✕ Clear search
+        </button>
+      )}
+      <button className={`tab-search ${filtered ? 'after-clear' : ''}`} onClick={() => setSearching(true)} title="Search commits, code and tags (Ctrl+K)" aria-label="Search">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="M15.5 15.5 21 21" />
+        </svg>
+        <span>Search</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+      {searching && (
+        <Suspense fallback={null}>
+          <SearchPalette onClose={() => setSearching(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

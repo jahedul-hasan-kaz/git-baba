@@ -10,6 +10,7 @@ import { SwitchBranchDialog } from '../../dialogs/BranchDialogs';
 import { CommitDialog } from '../../dialogs/CommitDialog';
 import { ConfirmDialog } from '../../dialogs/ConfirmDialog';
 import { PushDialog } from '../../dialogs/PushDialog';
+import { JUMP_EVENT, takeJump } from '../../services/jump';
 import { call, toFriendly } from '../../services/api';
 import { useApp } from '../../state/AppState';
 import { AboutPanel } from './AboutPanel';
@@ -248,6 +249,18 @@ export function CodePage() {
     setFile((f) => (f?.path === path ? f : null));
     setView({ kind: 'file', path, line });
   };
+  useEffect(() => {
+    const take = () => {
+      const j = takeJump('file', activeRepo!.id);
+      if (!j) return;
+      if (j.ref && j.ref !== 'HEAD') setRef(j.ref);
+      openFile(j.path, j.line);
+    };
+    take();
+    window.addEventListener(JUMP_EVENT, take);
+    return () => window.removeEventListener(JUMP_EVENT, take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRepo?.id]);
   const changeRef = (r: string) => {
     if (view.kind === 'edit' && view.content !== view.original && !window.confirm('Discard your unsaved edits?')) return;
     setRef(r);
