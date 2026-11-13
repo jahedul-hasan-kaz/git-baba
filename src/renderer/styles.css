@@ -5039,3 +5039,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .theme-vt::view-transition-old(root), .theme-vt::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 .theme-vt::view-transition-old(root) { z-index: 1; filter: saturate(0.9); }
 .theme-vt::view-transition-new(root) { z-index: 2; filter: drop-shadow(0 0 40px rgba(91, 140, 255, 0.25)); }
+
+/* Dialogs sit below the window title bar (which stays on top), so they never run under it. */
+.modal-backdrop { top: 34px; }
+.modal { max-height: calc(100vh - 34px - 48px); }
